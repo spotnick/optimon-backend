@@ -1,0 +1,14 @@
+# OptiMon — configuração do Railway (seção 6).
+# O repositório é um monorepo (api/ + web/ + supabase/); apontamos o Railway para
+# construir e rodar só o diretório api/ como serviço.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "api/Dockerfile"
+
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

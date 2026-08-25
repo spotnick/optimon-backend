@@ -1,0 +1,18 @@
+{
+  "name": "optimon-pricing-api",
+  "version": "2.2.1",
+  "private": true,
+  "description": "OptiMon Pricing Engine API — backend Node/Express publicado no Railway, consumido pelo frontend React (Vercel). Toda a lógica de negócio vive em SQL (supabase/migrations); esta API é uma camada fina e centralizada de acesso (seção 32/33).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js",
+    "lint": "node -e \"require('./server.js'); console.log('lint ok: server.js carrega sem erros de sintaxe/require.')\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

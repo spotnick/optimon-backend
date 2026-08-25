@@ -1,0 +1,1343 @@
+<title>OptiMon Pricing Engine</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============================= TOKENS ============================= */
+  :root {
+    --bg: #f5f7f9;
+    --surface: #ffffff;
+    --surface-alt: #eef2f4;
+    --surface-raised: #ffffff;
+    --border: #dbe2e7;
+    --border-strong: #c3ced5;
+    --text: #12202a;
+    --text-muted: #5c6f7a;
+    --text-faint: #8a9aa4;
+    --accent: #0e7c86;
+    --accent-strong: #075761;
+    --accent-soft: #e3f2f3;
+    --chart-a: #0891a3;   /* mínimo / série primária — validado CVD (light) */
+    --chart-b: #c8720a;   /* revenue share / série secundária */
+    --success: #1a7f5a;
+    --success-soft: #e4f5ee;
+    --warning: #b5790a;
+    --warning-soft: #fbf0dd;
+    --critical: #b6362c;
+    --critical-soft: #fbe9e7;
+    --shadow: 0 1px 2px rgba(18,32,42,.06), 0 8px 24px -12px rgba(18,32,42,.18);
+    --radius: 10px;
+    --font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+    --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1420;
+      --surface: #101c29;
+      --surface-alt: #16232f;
+      --surface-raised: #16232f;
+      --border: #23323f;
+      --border-strong: #324454;
+      --text: #e7eef3;
+      --text-muted: #93a6b3;
+      --text-faint: #64798a;
+      --accent: #2dd4dd;
+      --accent-strong: #7fe9ef;
+      --accent-soft: #123138;
+      --chart-a: #0d95a0;
+      --chart-b: #c37f2a;
+      --success: #3ecf8e;
+      --success-soft: #10291f;
+      --warning: #e0a63a;
+      --warning-soft: #2c2110;
+      --critical: #f0665c;
+      --critical-soft: #2c1512;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1420; --surface: #101c29; --surface-alt: #16232f; --surface-raised: #16232f;
+    --border: #23323f; --border-strong: #324454; --text: #e7eef3; --text-muted: #93a6b3; --text-faint: #64798a;
+    --accent: #2dd4dd; --accent-strong: #7fe9ef; --accent-soft: #123138;
+    --chart-a: #0d95a0; --chart-b: #c37f2a;
+    --success: #3ecf8e; --success-soft: #10291f; --warning: #e0a63a; --warning-soft: #2c2110;
+    --critical: #f0665c; --critical-soft: #2c1512;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-soft); color: var(--text); }
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 800; letter-spacing: .01em; text-wrap: balance; margin: 0; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  a { color: var(--accent-strong); }
+  button:focus-visible, select:focus-visible, input:focus-visible, .chip:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+
+  /* ============================= SHELL ============================= */
+  .shell { display: flex; min-height: 100vh; }
+  .rail {
+    width: 340px; flex: none; background: var(--surface); border-right: 1px solid var(--border);
+    padding: 20px 18px 100px; overflow-y: auto; height: 100vh; position: sticky; top: 0;
+  }
+  .main { flex: 1; min-width: 0; padding: 20px 28px 80px; }
+
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  .brand .mark { width: 10px; height: 10px; border-radius: 2px; background: var(--accent); flex: none; }
+  .brand h1 { font-size: 22px; }
+  .brand-sub { color: var(--text-muted); font-size: 12px; margin: 2px 0 22px; }
+
+  .field-group { margin-bottom: 20px; }
+  .field-group + .field-group { border-top: 1px solid var(--border); padding-top: 18px; }
+  .field-group-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text-faint); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
+  }
+  label { display: block; font-size: 12.5px; color: var(--text-muted); margin: 10px 0 4px; }
+  label:first-child { margin-top: 0; }
+  select, input[type="number"], input[type="text"] {
+    width: 100%; background: var(--surface-alt); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 7px 9px; font: inherit; font-family: var(--font-mono); font-size: 13px;
+  }
+  select { font-family: var(--font-body); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--border); background: var(--surface-alt); color: var(--text-muted);
+    border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; font-family: var(--font-body);
+  }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .chip.min-term { position: relative; }
+  .hint { font-size: 11px; color: var(--text-faint); margin-top: 5px; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 0; }
+  .toggle-row label { margin: 0; }
+  .switch { position: relative; width: 34px; height: 20px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch .track { position: absolute; inset: 0; background: var(--border-strong); border-radius: 999px; transition: background .15s; }
+  .switch .thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track + .thumb { transform: translateX(14px); }
+
+  .cta-primary {
+    width: 100%; background: var(--accent); color: #04252a; border: none; border-radius: 8px;
+    padding: 13px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; margin-top: 6px;
+    letter-spacing: .01em; box-shadow: var(--shadow);
+  }
+  :root[data-theme="dark"] .cta-primary, @media-dark-fallback {}
+  .cta-primary:hover { filter: brightness(1.05); }
+  .cta-secondary {
+    width: 100%; background: transparent; color: var(--accent-strong); border: 1px solid var(--accent);
+    border-radius: 8px; padding: 11px; font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; margin-top: 8px;
+  }
+  .cta-secondary:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ============================= MAIN HEADER ============================= */
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
+  .topbar h2 { font-size: 26px; }
+  .scenario-line { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+  .scenario-line .mono { color: var(--text); }
+  .term-badge {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent-strong);
+    border: 1px solid var(--accent); border-radius: 999px; padding: 6px 13px; font-size: 12px; font-weight: 700;
+    letter-spacing: .03em; white-space: nowrap;
+  }
+
+  /* ============================= PRICE CARDS ============================= */
+  .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+  .price-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .price-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .price-card.min::before { background: var(--text-faint); }
+  .price-card.rec::before { background: var(--accent); }
+  .price-card.prem::before { background: var(--chart-b); }
+  .price-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-weight: 700; }
+  .price-card .value { font-family: var(--font-display); font-size: 32px; font-weight: 800; margin: 4px 0 2px; }
+  .price-card .desc { font-size: 12px; color: var(--text-muted); }
+
+  /* ============================= METRICS ROW ============================= */
+  .metrics-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
+  .metric-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 12px 13px; }
+  .metric-tile .m-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); font-weight: 700; }
+  .metric-tile .m-value { font-family: var(--font-mono); font-size: 17px; font-weight: 600; margin-top: 4px; }
+  .metric-tile .m-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+  .badge.allow { background: var(--success-soft); color: var(--success); }
+  .badge.warn { background: var(--warning-soft); color: var(--warning); }
+  .badge.block { background: var(--critical-soft); color: var(--critical); }
+  .badge.dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* ============================= PANELS / CHARTS ============================= */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 16px 0; }
+  .panel-head h3 { font-size: 16px; font-weight: 700; font-family: var(--font-body); }
+  .panel-head .panel-note { font-size: 11.5px; color: var(--text-faint); }
+  .chart-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; margin-bottom: 16px; }
+  .chart-grid .panel:nth-child(3) { grid-column: 1 / -1; }
+  canvas { display: block; width: 100%; }
+  .legend { display: flex; gap: 14px; padding: 8px 16px 14px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .chart-empty { padding: 40px 16px; text-align: center; color: var(--text-faint); font-size: 13px; }
+
+  /* ============================= TABLE ============================= */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); font-weight: 700; }
+  td.mono { font-family: var(--font-mono); }
+  tr:last-child td { border-bottom: none; }
+  td.row-label { color: var(--text-muted); font-weight: 500; }
+  .col-winner { color: var(--accent-strong); font-weight: 700; }
+
+  .footnote { color: var(--text-faint); font-size: 11.5px; margin-top: 22px; line-height: 1.6; padding-top: 14px; border-top: 1px solid var(--border); }
+  .footnote code { font-family: var(--font-mono); background: var(--surface-alt); padding: 1px 5px; border-radius: 4px; }
+
+  /* ============================= INFRASTRUCTURE FLOOR ============================= */
+  .floor-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 14px; margin-bottom: 18px; }
+  .floor-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .floor-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--chart-b); }
+  .floor-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-weight: 700; }
+  .floor-card .value { font-family: var(--font-display); font-size: 32px; font-weight: 800; margin: 4px 0 2px; }
+  .floor-card .sub-row { display: flex; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-muted); }
+  .floor-card .sub-row .n { font-family: var(--font-mono); color: var(--text); font-weight: 600; }
+  .regua-ladder { display: flex; flex-direction: column; gap: 0; }
+  .regua-step {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-alt);
+    font-size: 13px; position: relative;
+  }
+  .regua-step + .regua-step { margin-top: 4px; }
+  .regua-step .rs-name { font-weight: 700; letter-spacing: .02em; }
+  .regua-step .rs-value { font-family: var(--font-mono); font-weight: 700; font-size: 15px; }
+  .regua-step.abertura { border-left: 4px solid var(--chart-b); }
+  .regua-step.recomendado { border-left: 4px solid var(--accent); }
+  .regua-step.piso { border-left: 4px solid var(--text-faint); }
+  .regua-step.bloqueado { border-left: 4px solid var(--critical); color: var(--critical); background: var(--critical-soft); }
+  .regua-step.current { outline: 2px solid var(--accent-strong); outline-offset: -1px; }
+  .regua-step .rs-marker {
+    position: absolute; right: 14px; top: -9px; background: var(--accent-strong); color: var(--surface);
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .03em;
+  }
+  .negotiation-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-top: 6px; }
+  .negotiation-line .badge { font-size: 11px; }
+
+  @media (max-width: 980px) {
+    .shell { flex-direction: column; }
+    .rail { width: 100%; height: auto; position: static; border-right: none; border-bottom: 1px solid var(--border); }
+    .price-grid { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .chart-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="shell">
+  <!-- ============================= CONTROL RAIL ============================= -->
+  <aside class="rail">
+    <div class="brand"><span class="mark"></span><h1>OptiMon</h1></div>
+    <div class="brand-sub">PRICING ENGINE — SIMULADOR COMERCIAL</div>
+
+    <div class="field-group">
+      <div class="field-group-title">Oportunidade</div>
+      <label for="in-cidade">Cidade</label>
+      <select id="in-cidade"><option>Jussara — PR</option></select>
+      <div class="row2">
+        <div>
+          <label for="in-pop">POP</label>
+          <select id="in-pop"><option>POP-01</option><option>POP-02</option></select>
+        </div>
+        <div>
+          <label for="in-parceiro">Parceiro</label>
+          <select id="in-parceiro"><option>Provedor Regional E</option></select>
+        </div>
+      </div>
+      <label for="in-modelo">Modelo</label>
+      <select id="in-modelo">
+        <option value="HIBRIDO">Cenário 2 — Porta PON + Revenue Share</option>
+        <option value="DARK">Cenário 1 — Dark Fiber</option>
+      </select>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Infrastructure Floor (seção 3/13) — Piso de Infraestrutura</div>
+      <div class="row2">
+        <div><label for="in-postes">Postes</label><input type="number" id="in-postes" value="165" min="0"></div>
+        <div><label for="in-km-rede">Rede (km)</label><input type="number" id="in-km-rede" value="5" min="0" step="0.001"></div>
+      </div>
+      <label for="in-pons-count">Portas PON contratadas (seção 3/16/19 — Fase 2.2.1)</label>
+      <input type="number" id="in-pons-count" value="1" min="0">
+      <div class="row2">
+        <div><label for="in-preco-poste">R$/poste/mês</label><input type="number" id="in-preco-poste" value="8.00" min="0" step="0.01"></div>
+        <div><label for="in-preco-metro-piso">R$/m — piso</label><input type="number" id="in-preco-metro-piso" value="0.10" min="0" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div><label for="in-preco-metro-recomendado">R$/m — recomendado</label><input type="number" id="in-preco-metro-recomendado" value="0.15" min="0" step="0.01"></div>
+        <div><label for="in-preco-metro-abertura">R$/m — abertura</label><input type="number" id="in-preco-metro-abertura" value="0.20" min="0" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div><label for="in-preco-pon-piso">R$/PON — piso</label><input type="number" id="in-preco-pon-piso" value="200.00" min="0" step="1"></div>
+        <div><label for="in-preco-pon-recomendado">R$/PON — recomendado</label><input type="number" id="in-preco-pon-recomendado" value="250.00" min="0" step="1"></div>
+      </div>
+      <label for="in-preco-pon-abertura">R$/PON — abertura</label>
+      <input type="number" id="in-preco-pon-abertura" value="300.00" min="0" step="1">
+      <div class="hint">É POLÍTICA COMERCIAL de monetização mínima da infraestrutura (postes + metros de rede + Portas PON) — nunca "custo real" (seção 12/43). Valores parametrizáveis, nunca hard-coded; Pricing Version 2026.08.1 (seção 4/29). Exemplo oficial: Jussara, 165 postes / 5.000m / 1 PON → piso R$2.020 · recomendado R$2.320 · abertura R$2.620.</div>
+      <label>Composição Floor × Mínimo (seção 32/33)</label>
+      <div class="chip-row" id="chip-composicao-piso">
+        <button type="button" class="chip" data-val="FLOOR_ONLY">FLOOR_ONLY</button>
+        <button type="button" class="chip" data-val="MINIMUM_ONLY">MINIMUM_ONLY</button>
+        <button type="button" class="chip" data-val="FLOOR_AS_MINIMUM" aria-pressed="true">FLOOR_AS_MINIMUM</button>
+        <button type="button" class="chip" data-val="SUM">SUM</button>
+        <button type="button" class="chip" data-val="MAX">MAX</button>
+      </div>
+      <div class="hint">Contrato 0006 (Jussara) mantém FLOOR_AS_MINIMUM explicitamente. Novos contratos (Fase 2.2.1, seção 21) nascem com default MAX = MAX(Infrastructure Floor, Revenue Share) — sem Mínimo Contratual na conta.</div>
+      <div class="toggle-row" style="margin-top:10px">
+        <label for="in-piso-enforced" style="margin:0">Piso sempre garantido (enforced)</label>
+        <div class="switch"><input type="checkbox" id="in-piso-enforced" checked><div class="track"></div><div class="thumb"></div></div>
+      </div>
+      <label for="in-fibras-ociosas" style="margin-top:10px">Fibras ociosas na cidade (indicador analítico, seção 25/26)</label>
+      <input type="number" id="in-fibras-ociosas" value="10" min="0">
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Governança por papel (seção 12/13/35 — Fase 2.2.1)</div>
+      <label>Papel de quem está avaliando</label>
+      <div class="chip-row" id="chip-perfil-governanca">
+        <button type="button" class="chip" data-val="COMERCIAL" aria-pressed="true">COMERCIAL</button>
+        <button type="button" class="chip" data-val="DIRETOR">DIRETOR</button>
+        <button type="button" class="chip" data-val="ADMINISTRADOR">ADMINISTRADOR</button>
+        <button type="button" class="chip" data-val="FINANCEIRO">FINANCEIRO</button>
+      </div>
+      <label for="in-max-override-discount" style="margin-top:10px">Desconto máximo de override (% da abertura)</label>
+      <input type="number" id="in-max-override-discount" value="50" min="0" max="100" step="1">
+      <div class="hint">Papel resolvido no servidor via app.perfil_atual() — nunca informado pelo cliente (seção 12). O simulador aqui é só para prever o veredito; a decisão real sempre roda no banco.</div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Capacidade</div>
+      <div class="row2">
+        <div><label for="in-portas">Portas contratadas</label><input type="number" id="in-portas" value="1" min="1"></div>
+        <div><label for="in-cap">Capacidade/porta</label><input type="number" id="in-cap" value="128" min="1"></div>
+      </div>
+      <div class="hint" id="hint-portas-necessarias">—</div>
+      <label for="in-fibras">Fibras contratadas (Dark Fiber)</label>
+      <input type="number" id="in-fibras" value="2" min="1">
+      <div class="hint">Fibra óptica individual é a unidade comercial padrão do Dark Fiber (seção 1) — "par" não é mais usado pelo motor de preço.</div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Modelo comercial</div>
+      <label>Cobrança híbrida</label>
+      <div class="chip-row" id="chip-modelo-cobranca">
+        <button type="button" class="chip" data-val="SOMA" aria-pressed="true">SOMA</button>
+        <button type="button" class="chip" data-val="MAX" aria-pressed="false">MAX</button>
+      </div>
+      <div class="row2">
+        <div><label for="in-minimo">Mínimo (R$/mês)</label><input type="number" id="in-minimo" value="1000" min="0"></div>
+        <div><label for="in-share">Revenue share (%)</label><input type="number" id="in-share" value="12" min="0" max="100" step="0.5"></div>
+      </div>
+      <label for="in-proposto">Preço proposto (R$/mês) — opcional, testa governança</label>
+      <input type="number" id="in-proposto" placeholder="ex.: 2200" min="0">
+      <div class="toggle-row" style="margin-top:10px">
+        <label for="in-rampa" style="margin:0">Aplicar rampa de maturação</label>
+        <div class="switch"><input type="checkbox" id="in-rampa" checked><div class="track"></div><div class="thumb"></div></div>
+      </div>
+      <label>Rampa aplica-se a (rampa_aplica_a)</label>
+      <div class="chip-row" id="chip-rampa-alvo">
+        <button type="button" class="chip" data-val="FIXO_MINIMO" aria-pressed="true">Só mínimo</button>
+        <button type="button" class="chip" data-val="REVENUE_SHARE" aria-pressed="false">Só revenue share</button>
+        <button type="button" class="chip" data-val="AMBOS" aria-pressed="false">Ambos</button>
+      </div>
+      <div class="hint">1–3m: 50% · 4–6m: 75% · 7m+: 100% — aplicado só ao(s) componente(s) selecionado(s) (seção 4/25/26); o outro componente cobra 100% desde o mês 1.</div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Base de clientes</div>
+      <div class="row2">
+        <div><label for="in-clientes0">Clientes iniciais</label><input type="number" id="in-clientes0" value="10" min="0"></div>
+        <div><label for="in-cresc">Crescimento/mês</label><input type="number" id="in-cresc" value="8" min="0"></div>
+      </div>
+      <label>Cenários rápidos (meta)</label>
+      <div class="chip-row" id="chip-meta">
+        <button type="button" class="chip" data-val="50">50</button>
+        <button type="button" class="chip" data-val="100">100</button>
+        <button type="button" class="chip" data-val="200">200</button>
+        <button type="button" class="chip" data-val="500">500</button>
+        <button type="button" class="chip" data-val="1000">1000</button>
+      </div>
+      <div class="row2" style="margin-top:10px">
+        <div><label for="in-arpu">ARPU inicial (R$)</label><input type="number" id="in-arpu" value="100" min="0"></div>
+        <div><label for="in-arpu-cresc">Cresc. ARPU/ano (%)</label><input type="number" id="in-arpu-cresc" value="0" min="0" step="0.5"></div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Prazo &amp; reajuste</div>
+      <label>Horizonte de análise</label>
+      <div class="chip-row" id="chip-prazo">
+        <button type="button" class="chip" data-val="12">12m</button>
+        <button type="button" class="chip" data-val="36">36m</button>
+        <button type="button" class="chip min-term" data-val="48" aria-pressed="true">48m</button>
+        <button type="button" class="chip" data-val="60">60m</button>
+      </div>
+      <div class="hint">CONTRATO MÍNIMO: 48 MESES — 12/36m são só horizontes de análise.</div>
+      <div class="row2" style="margin-top:10px">
+        <div><label for="in-indice">Índice de reajuste</label><select id="in-indice"><option>IPCA</option><option>IGPM</option><option>FIXO</option><option>SEM_REAJUSTE</option></select></div>
+        <div><label for="in-reajuste">Reajuste anual (%)</label><input type="number" id="in-reajuste" value="5" min="0" step="0.1"></div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Viabilidade do parceiro (seção 11/57)</div>
+      <div class="row2">
+        <div><label for="in-margem-parc-min">Margem mínima parceiro (%)</label><input type="number" id="in-margem-parc-min" value="20" min="0" max="100" step="1"></div>
+        <div><label for="in-margem-parc-confortavel">Margem confortável (%) — opcional</label><input type="number" id="in-margem-parc-confortavel" placeholder="A DEFINIR" min="0" max="100" step="1"></div>
+      </div>
+      <label for="in-roi-excelencia">ROI excelência OptiMon (%) — opcional</label>
+      <input type="number" id="in-roi-excelencia" placeholder="A DEFINIR" min="0" step="1">
+      <div class="hint">Sem "confortável"/"ROI excelência" definidos, a classificação nunca usa os níveis MARGEM BAIXA/EXCELENTE — cai em VIÁVEL/INVIÁVEL (parametrizável, seção 65).</div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Multi-POP (seção 12) — Cenário 2</div>
+      <div class="row2">
+        <div><label for="in-pop1-portas">Portas em POP-01</label><input type="number" id="in-pop1-portas" value="1" min="0"></div>
+        <div><label for="in-pop2-portas">Portas em POP-02</label><input type="number" id="in-pop2-portas" value="0" min="0"></div>
+      </div>
+      <label for="in-pop3-portas">Portas em POP-03</label>
+      <input type="number" id="in-pop3-portas" value="0" min="0">
+      <div class="hint">A soma deve bater com "Portas contratadas" acima — o consolidado da cidade some os POPs, mas o resultado por POP fica sempre visível (seção 12).</div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Investimento</div>
+      <div class="row2">
+        <div><label for="in-capex">CAPEX incremental (R$)</label><input type="number" id="in-capex" value="0" min="0"></div>
+        <div><label for="in-opex">OPEX incremental (R$/mês)</label><input type="number" id="in-opex" value="0" min="0"></div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-group-title">Dark Fiber (Cenário 1)</div>
+      <div class="row2">
+        <div><label for="in-margem">Margem mínima (%)</label><input type="number" id="in-margem" value="15" min="0" step="0.5"></div>
+        <div><label for="in-risco">Fator de risco (%)</label><input type="number" id="in-risco" value="5" min="0" step="0.5"></div>
+      </div>
+      <label for="in-disp">Disponibilidade de fibra na cidade (%)</label>
+      <input type="number" id="in-disp" value="33" min="0" max="100" step="1">
+      <div class="hint" id="hint-escassez">—</div>
+    </div>
+
+    <button class="cta-primary" id="btn-simular">GERAR SIMULAÇÃO</button>
+    <button class="cta-secondary" id="btn-proposta" disabled>GERAR PROPOSTA</button>
+  </aside>
+
+  <!-- ============================= RESULTS ============================= -->
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h2>Resultado da simulação</h2>
+        <div class="scenario-line">Jussara–PR · <span class="mono" id="out-pop">POP-01</span> · <span class="mono" id="out-modelo">Porta PON + Revenue Share</span> · <span class="mono" id="out-portas-cap">1 porta × 128</span></div>
+      </div>
+      <span class="term-badge">CONTRATO MÍNIMO: 48 MESES</span>
+    </div>
+
+    <div class="price-grid">
+      <div class="price-card min">
+        <div class="label">Preço mínimo</div>
+        <div class="value mono" id="price-min">—</div>
+        <div class="desc">Menor valor comercial aceitável</div>
+      </div>
+      <div class="price-card rec">
+        <div class="label">Preço recomendado <span class="badge allow dot" id="badge-governanca" style="float:right">ALLOW</span></div>
+        <div class="value mono" id="price-rec">—</div>
+        <div class="desc">Melhor equilíbrio custo × mercado</div>
+      </div>
+      <div class="price-card prem">
+        <div class="label">Preço premium</div>
+        <div class="value mono" id="price-prem">—</div>
+        <div class="desc">Alta rentabilidade / escassez</div>
+      </div>
+    </div>
+
+    <div class="floor-grid">
+      <div class="floor-card">
+        <div class="label">Valor mínimo de infraestrutura (seção 36)</div>
+        <div class="value mono" id="floor-value">—</div>
+        <div class="sub-row">
+          <div><span class="n" id="floor-postes">—</span> postes</div>
+          <div><span class="n" id="floor-km">—</span> km de rede</div>
+        </div>
+        <div class="sub-row">
+          <div>Valor/fibra ociosa: <span class="n" id="floor-por-fibra">—</span></div>
+        </div>
+        <div class="sub-row">
+          <div>Valor/Porta PON: <span class="n" id="floor-por-pon">—</span></div>
+        </div>
+        <div class="sub-row">
+          <div>Componente PON no Floor: <span class="n" id="floor-pon-component">—</span> (<span class="n" id="floor-pons-count">—</span> PON(s))</div>
+        </div>
+      </div>
+      <div class="panel" style="padding:16px 18px">
+        <div class="panel-head" style="padding:0 0 10px"><h3 style="font-size:14px">Régua de preço (seção 9/37 — nunca "margem de negociação")</h3><span class="panel-note">preço proposto no campo ao lado</span></div>
+        <div class="regua-ladder" id="regua-ladder">
+          <div class="regua-step abertura"><span class="rs-name">ABERTURA</span><span class="rs-value mono" id="rs-abertura">—</span></div>
+          <div class="regua-step recomendado"><span class="rs-name">RECOMENDADO</span><span class="rs-value mono" id="rs-recomendado">—</span></div>
+          <div class="regua-step piso"><span class="rs-name">PISO</span><span class="rs-value mono" id="rs-piso">—</span></div>
+          <div class="regua-step bloqueado"><span class="rs-name">BLOQUEADO</span><span class="rs-value mono">abaixo do piso</span></div>
+        </div>
+        <div class="negotiation-line">
+          <span class="badge dot" id="badge-regua-governanca">—</span>
+          <span id="negotiation-text" style="color:var(--text-muted)">Informe um preço proposto para negociar.</span>
+        </div>
+        <div class="negotiation-line" style="margin-top:8px">
+          <span class="badge dot" id="badge-governanca-role">—</span>
+          <span id="negotiation-role-text" style="color:var(--text-muted)">Governança por papel (seção 12/35).</span>
+        </div>
+        <div class="hint" id="hint-preco-minimo-autorizado" style="margin-top:6px">Preço mínimo autorizável (override): —</div>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-tile"><div class="m-label">Receita OptiMon (mês 1)</div><div class="m-value mono" id="m-receita-optimon">—</div></div>
+      <div class="metric-tile"><div class="m-label">Receita parceiro (mês 1)</div><div class="m-value mono" id="m-receita-parceiro">—</div></div>
+      <div class="metric-tile"><div class="m-label">ROI @ horizonte</div><div class="m-value mono" id="m-roi">—</div></div>
+      <div class="metric-tile"><div class="m-label">Payback</div><div class="m-value mono" id="m-payback">—</div></div>
+      <div class="metric-tile"><div class="m-label">Break-even</div><div class="m-value mono" id="m-breakeven">—</div><div class="m-sub" id="m-breakeven-clientes">—</div></div>
+      <div class="metric-tile"><div class="m-label">Classificação</div><div class="m-value" id="m-classificacao" style="font-size:13px;margin-top:7px">—</div></div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="panel">
+        <div class="panel-head"><h3>Receita OptiMon × crescimento do parceiro</h3><span class="panel-note">eixo X: clientes · eixo Y: R$/mês</span></div>
+        <canvas id="chart-revenue" height="230"></canvas>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-a)"></span>Mínimo</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-b)"></span>Revenue share</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--text)"></span>Receita total</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Ocupação de capacidade</h3><span class="panel-note">mês final</span></div>
+        <canvas id="chart-capacity" height="230"></canvas>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-a)"></span>Clientes ativos</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--border-strong)"></span>Disponível</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Fluxo de caixa acumulado</h3><span class="panel-note">eixo X: mês · CAPEX, resultado e payback</span></div>
+        <canvas id="chart-cashflow" height="180"></canvas>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-a)"></span>Cash flow acumulado</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--critical)"></span>CAPEX (mês 1)</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-b)"></span>Investimento (referência)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px">
+      <div class="panel-head"><h3>Comparação de cenários</h3><span class="panel-note">Dark Fiber × Porta PON + Revenue Share, mesmo horizonte</span></div>
+      <div class="table-wrap">
+        <table id="table-comparacao">
+          <thead><tr><th></th><th>Cenário 1 — Dark Fiber</th><th>Cenário 2 — Porta PON + RS</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px">
+      <div class="panel-head"><h3>Multi-POP</h3><span class="panel-note">capacidade por POP + consolidado (seção 12)</span></div>
+      <div class="table-wrap">
+        <table id="table-multipop">
+          <thead><tr><th>POP</th><th>Portas</th><th>Capacidade</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px">
+      <div class="panel-head"><h3>Teste econômico completo — Cenário 2</h3><span class="panel-note">1 Porta PON · 128 capacidade · clientes 10/25/50/75/84/100/128 (seção 9)</span></div>
+      <div class="table-wrap">
+        <table id="table-economico">
+          <thead><tr><th>Clientes</th><th>Fat. parceiro</th><th>Revenue share</th><th>Mínimo</th><th>Receita OptiMon</th><th>Receita líq. OptiMon</th><th>Margem parceiro</th><th>Margem OptiMon</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px">
+      <div class="panel-head"><h3>Comparação econômica com Infrastructure Floor</h3><span class="panel-note">seção 30 — composição atual: <span class="mono" id="out-composicao-piso">FLOOR_AS_MINIMUM</span></span></div>
+      <div class="table-wrap">
+        <table id="table-comparacao-piso">
+          <thead><tr><th></th><th>Valor</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px">
+      <div class="panel-head"><h3>Teste de ARPU com Infrastructure Floor — Jussara</h3><span class="panel-note">ARPU R$100 · clientes 10/25/50/75/84/100/128 (seção 31)</span></div>
+      <div class="table-wrap">
+        <table id="table-economico-piso">
+          <thead><tr><th>Clientes</th><th>Fat. parceiro</th><th>Revenue share</th><th>Infra Floor</th><th>Mínimo contratual</th><th>Total a pagar</th><th>Receita OptiMon</th><th>Margem parceiro</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="footnote">
+      Simulador espelha, em JavaScript, exatamente as fórmulas testadas em <code>app.simular_projecao</code>,
+      <code>app.calcular_cobranca_hibrida</code>, <code>app.calcular_preco_minimo/recomendado/premium_dark_fiber</code>,
+      <code>app.calcular_preco_minimo/recomendado/premium_porta_pon</code>, <code>app.get_fibras_contratadas_dark_fiber</code>,
+      <code>app.classificar_negocio</code>, <code>app.get_capacidade_multi_pop_contrato</code>,
+      <code>app.calcular_roi</code>, <code>app.calcular_payback</code>, <code>app.calcular_breakeven_*</code>,
+      <code>app.calculate_infrastructure_floor</code>, <code>app.get_economia_com_piso</code>,
+      <code>app.classificar_posicao_regua</code> e <code>app.check_infrastructure_floor_governance</code>
+      (ver <code>supabase/migrations/2026082[789]*.sql</code>) — a fonte de verdade é o banco; este painel é a camada de
+      demonstração enquanto a API (<code>api/routes/pricing.js</code>) ainda não está hospedada. Valores de margem/risco,
+      mínimo/revenue share e os parâmetros do Infrastructure Floor são sempre parametrizáveis — os campos ao lado nunca
+      ficam ocultos no código. Fase 2.2: Infrastructure Floor (postes + metros de rede) é POLÍTICA COMERCIAL de
+      monetização mínima, nunca "custo real" (esse continua em <code>custos_infraestrutura</code>, inalterado); coexiste
+      com o Mínimo Contratual por Porta PON e o Revenue Share sem somar os três "por acidente" — a composição é
+      explícita (FLOOR_ONLY/MINIMUM_ONLY/FLOOR_AS_MINIMUM/SUM/MAX).
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================ PRICING ENGINE (mirror of app.* SQL) ============================ */
+  const RAMP_RULES = [ [1,3,0.50], [4,6,0.75], [7,null,1.00] ];
+  function fatorRampaBase(mes) {
+    for (const [a,b,p] of RAMP_RULES) if (mes >= a && (b === null || mes <= b)) return p;
+    return 1.0;
+  }
+  // Espelha app.get_fator_rampa() + a correção da Fase 2.1 (seção 4): o fator só se
+  // aplica ao componente ('FIXO_MINIMO'/'REVENUE_SHARE') autorizado por rampaAplicaA
+  // ('FIXO_MINIMO'|'REVENUE_SHARE'|'AMBOS'); o outro componente fica sempre em 1.00.
+  function fatorRampa(mes, ativa, componente, rampaAplicaA) {
+    if (!ativa) return 1.0;
+    if (rampaAplicaA !== 'AMBOS' && rampaAplicaA !== componente) return 1.0;
+    return fatorRampaBase(mes);
+  }
+  function portasNecessarias(clientes, capacidade) {
+    if (!capacidade || capacidade <= 0 || clientes <= 0) return 0;
+    return Math.ceil(clientes / capacidade);
+  }
+  function cobrancaHibrida(minimo, share, modelo) {
+    return modelo === "SOMA" ? minimo + share : Math.max(minimo, share);
+  }
+  function breakevenFaturamento(minimo, sharePct) {
+    if (!sharePct) return null;
+    return minimo / sharePct;
+  }
+  function breakevenClientes(minimo, sharePct, arpu) {
+    const be = breakevenFaturamento(minimo, sharePct);
+    if (be === null || !arpu) return null;
+    return Math.ceil(be / arpu);
+  }
+  function escassezFator(disponibilidade01) {
+    if (disponibilidade01 >= 0.50) return 1.00;
+    if (disponibilidade01 >= 0.30) return 1.15;
+    if (disponibilidade01 >= 0.10) return 1.35;
+    return 1.60;
+  }
+  // Dark Fiber: mesma fórmula de app.calcular_preco_minimo/recomendado/premium_dark_fiber,
+  // usando o piso comercial parametrizado por FIBRA INDIVIDUAL (seção 1 da Fase 2.1 —
+  // DARK_FIBER_PRECO_MINIMO_FIBRA_MES=1500, valor herdado do antigo piso por par;
+  // MULTIPLICADOR_RECOMENDADO=1.20, MULTIPLICADOR_PREMIUM=1.50 — já seedados desde a
+  // Fase 1) como base, já que o custo incremental real (custos_infraestrutura) vive só
+  // no banco. "Par de fibra" NÃO é mais a unidade comercial do motor padrão.
+  const PISO_FIBRA_MES = 1500, MULT_RECOMENDADO = 1.20, MULT_PREMIUM = 1.50;
+  function darkFiberPrecos(fibras, margemPct, riscoPct, disponibilidade01) {
+    const base = PISO_FIBRA_MES * Math.max(fibras, 1);
+    const minimo = base * (1 + margemPct + riscoPct);
+    const fEscassez = escassezFator(disponibilidade01);
+    const recomendado = minimo * MULT_RECOMENDADO * fEscassez;
+    const premium = recomendado * MULT_PREMIUM;
+    return { minimo, recomendado, premium, fEscassez };
+  }
+
+  // Cenário 2 (Porta PON + Revenue Share): motor de preço REAL — espelha
+  // app.calcular_preco_minimo/recomendado/premium_porta_pon (Fase 2.1, seções 5-8).
+  // Antes da Fase 2.1 este painel só multiplicava o mínimo informado por 1.20/1.80 — não
+  // considerava custo incremental, portas contratadas, escassez de capacidade de porta,
+  // exclusividade, multi-POP ou capacidade reservada. PORTA_PON_MULTIPLICADOR_*=1.20/1.50
+  // herdam o valor já aprovado para o Dark Fiber (seção 65 — sem revisão específica
+  // ainda para Cenário 2, sinalizado no relatório da Fase 2.1).
+  const PISO_PORTA_MES = 1000, MULT_PORTA_RECOMENDADO = 1.20, MULT_PORTA_PREMIUM = 1.50;
+  function portaPonPrecos(minimoConfigurado, portas, margemPct, riscoPct, disponibilidadePorta01, exclusivo, qtdPops, temReservada) {
+    const base = Math.max(PISO_PORTA_MES * Math.max(portas, 1), 0);
+    const minimo = base * (1 + margemPct + riscoPct);
+    const fEscassez = escassezFator(disponibilidadePorta01);
+    const recomendado = minimo * MULT_PORTA_RECOMENDADO * fEscassez;
+    const bonusExclusividade = 1.00, bonusMultiPop = 1.00, bonusReservada = 1.00; // PARAMETRIZÁVEL, neutro (seção 8/65)
+    const premium = recomendado * MULT_PORTA_PREMIUM
+      * (exclusivo ? bonusExclusividade : 1)
+      * (qtdPops > 1 ? bonusMultiPop : 1)
+      * (temReservada ? bonusReservada : 1);
+    return { minimo, recomendado, premium, fEscassez };
+  }
+
+  // Viabilidade — espelha app.classificar_negocio (Fase 2.1, seção 11): 4 níveis.
+  // "confortavelPct"/"roiExcelenciaPct" null = PARAMETRIZÁVEL (seção 65) — a faixa
+  // MARGEM BAIXA e o nível EXCELENTE só existem quando esses limiares são informados.
+  function classificarNegocio(margemParceiro, margemMinimaPct, confortavelPct, roi, roiExcelenciaPct) {
+    if (margemParceiro == null || margemMinimaPct == null) return 'PARAMETRIZÁVEL';
+    if (margemParceiro < margemMinimaPct) return 'INVIÁVEL';
+    if (confortavelPct != null && margemParceiro < confortavelPct) return 'MARGEM BAIXA';
+    if (roiExcelenciaPct != null && roi != null && roi >= roiExcelenciaPct) return 'EXCELENTE';
+    return 'VIÁVEL';
+  }
+  function checkGovernanca(proposto, minimo, recomendado) {
+    if (proposto == null || minimo == null) return "PARAMETRIZÁVEL";
+    if (proposto < minimo) return "BLOCK";
+    if (recomendado != null && proposto < recomendado) return "REQUIRES_APPROVAL";
+    return "ALLOW";
+  }
+
+  /* ============================ INFRASTRUCTURE FLOOR (Fase 2.2 + Fase 2.2.1) ============================ */
+  // Espelha app.calculate_infrastructure_floor (seção 21/22, Fase 2.2; seção 3/6-8, Fase
+  // 2.2.1 adiciona o componente PON): PISO/RECOMENDADO/ABERTURA = (postes × preço/poste) +
+  // (metros × preço/metro do nível) + (PONs × preço/PON do nível). O preço do poste NÃO
+  // varia por nível da régua — só metro e PON têm 3 preços (piso/recomendado/abertura).
+  // Política comercial de monetização mínima — NUNCA "custo real" (seção 12/43).
+  function calculateInfrastructureFloor(postes, kmRede, precoPoste, precoMetroPiso, precoMetroRecomendado, precoMetroAbertura, ponsCount, precoPonPiso, precoPonRecomendado, precoPonAbertura) {
+    const metros = kmRede * 1000;
+    const pons = ponsCount || 0;
+    const poleComponent = postes * precoPoste;
+    const floorMeter = metros * precoMetroPiso;
+    const recMeter = metros * precoMetroRecomendado;
+    const openMeter = metros * precoMetroAbertura;
+    const floorPon = pons * (precoPonPiso || 0);
+    const recPon = pons * (precoPonRecomendado || 0);
+    const openPon = pons * (precoPonAbertura || 0);
+    return {
+      poles_count: postes, network_meters: metros, pons_count: pons, pole_component: poleComponent,
+      pon_component: floorPon,
+      floor_price: poleComponent + floorMeter + floorPon,
+      recommended_price: poleComponent + recMeter + recPon,
+      opening_price: poleComponent + openMeter + openPon,
+    };
+  }
+
+  // Espelha app.calcular_preco_minimo_autorizado (seção 13, Fase 2.2.1): piso absoluto de
+  // desconto de override — abaixo disto, NENHUM perfil (nem DIRETOR/ADMINISTRADOR) pode
+  // aprovar. MINIMUM_AUTHORIZED_PRICE = OPENING_PRICE × (1 - MAX_OVERRIDE_DISCOUNT_PERCENT).
+  function calcularPrecoMinimoAutorizado(precoAbertura, maxOverrideDiscountPct) {
+    if (precoAbertura == null || maxOverrideDiscountPct == null) return null;
+    return round2(precoAbertura * (1 - maxOverrideDiscountPct));
+  }
+
+  // Espelha app.check_infrastructure_floor_governance_role (seção 12/13/35, Fase 2.2.1) —
+  // veredito de 5 estados, ciente do papel de quem está avaliando (resolvido no servidor
+  // via app.perfil_atual() no banco real; aqui só um seletor para prever o veredito).
+  // Segue a fórmula explícita da seção 12: >=recomendado → ALLOW (qualquer papel);
+  // piso<=x<recomendado → ALLOW_WITH_DISCOUNT PARA QUALQUER PAPEL (já é autoridade normal
+  // do Comercial, DIRETOR não precisa de veredito especial aqui — só abaixo do piso é que
+  // o papel passa a importar); x<piso → BLOCK_FOR_COMMERCIAL para COMERCIAL,
+  // ALLOW_WITH_DIRECTOR_OVERRIDE para DIRETOR/ADMINISTRADOR (ou FINANCEIRO autorizado),
+  // sujeito ao piso absoluto de app.calcular_preco_minimo_autorizado → BLOCK para
+  // qualquer papel abaixo dele. Mesma resolução aplicada na migration SQL para a
+  // inconsistência entre o exemplo da seção 33 (que sugere BLOCK_FOR_COMMERCIAL em
+  // R$2.100) e a regra explícita da seção 12 — documentada em detalhe no relatório.
+  function checkInfraFloorGovernancaRole(proposto, recomendado, piso, abertura, maxOverrideDiscountPct, role) {
+    if ([proposto, recomendado, piso].some(v => v == null)) return 'PARAMETRIZÁVEL';
+    if (proposto >= recomendado) return 'ALLOW';
+    if (proposto >= piso) return 'ALLOW_WITH_DISCOUNT';
+    const podeDecidir = role === 'DIRETOR' || role === 'ADMINISTRADOR';
+    if (!podeDecidir) return 'BLOCK_FOR_COMMERCIAL';
+    const minimoAutorizado = calcularPrecoMinimoAutorizado(abertura, maxOverrideDiscountPct);
+    if (minimoAutorizado != null && proposto < minimoAutorizado) return 'BLOCK';
+    return 'ALLOW_WITH_DIRECTOR_OVERRIDE';
+  }
+
+  // Espelha app.calcular_desconto_comercial (seção 10/38).
+  function calcularDescontoComercial(abertura, proposto, recomendado) {
+    if (abertura == null || proposto == null || abertura === 0) {
+      return { descAbsAbertura: null, descPctAbertura: null, descAbsRecomendado: null, descPctRecomendado: null };
+    }
+    const descAbsAbertura = abertura - proposto;
+    const descPctAbertura = (abertura - proposto) / abertura;
+    let descAbsRecomendado = null, descPctRecomendado = null;
+    if (recomendado != null && recomendado !== 0) {
+      descAbsRecomendado = recomendado - proposto;
+      descPctRecomendado = (recomendado - proposto) / recomendado;
+    }
+    return { descAbsAbertura, descPctAbertura, descAbsRecomendado, descPctRecomendado };
+  }
+
+  // Espelha app.classificar_posicao_regua (seção 9/20/37) — rótulo de posição na régua.
+  function classificarPosicaoRegua(proposto, abertura, recomendado, piso) {
+    if ([proposto, abertura, recomendado, piso].some(v => v == null)) return 'PARAMETRIZÁVEL';
+    if (proposto >= abertura) return 'PREÇO DE ABERTURA';
+    if (proposto === recomendado) return 'PREÇO RECOMENDADO';
+    if (proposto > recomendado) return 'DENTRO DA RÉGUA';
+    if (proposto === piso) return 'PREÇO DE RESERVA';
+    if (proposto > piso) return 'DESCONTO SOBRE RECOMENDADO';
+    return 'BLOCKED';
+  }
+
+  // Espelha app.check_infrastructure_floor_governance (seção 11/39) — veredito de aprovação.
+  function checkInfraFloorGovernanca(proposto, recomendado, piso) {
+    if (proposto == null || recomendado == null || piso == null) return 'PARAMETRIZÁVEL';
+    if (proposto >= recomendado) return 'ALLOW';
+    if (proposto >= piso) return 'ALLOW_WITH_DISCOUNT';
+    return 'BLOCK';
+  }
+
+  // Espelha app.calcular_composicao_piso_minimo (seção 32/33).
+  function calcularComposicaoPisoMinimo(modo, floor, minimo) {
+    switch (modo) {
+      case 'FLOOR_ONLY': return floor;
+      case 'MINIMUM_ONLY': return minimo;
+      case 'FLOOR_AS_MINIMUM': return floor;
+      case 'SUM': return floor + minimo;
+      case 'MAX': return Math.max(floor, minimo);
+      default: return floor;
+    }
+  }
+
+  // Espelha app.get_economia_com_piso (seção 17/30, Fase 2.2; seção 21, Fase 2.2.1 muda o
+  // significado do modo MAX) — nunca soma Floor+Mínimo "por acidente"; a composição segue
+  // o modo do contrato, com o Floor como rede de proteção final quando enforced=true
+  // (seção 18). Modo MAX (Fase 2.2.1, seção 21): mudança de comportamento INTENCIONAL e
+  // documentada em relação à Fase 2.2 — passa a ser literalmente
+  // TOTAL_PAYABLE = MAX(Infrastructure_Floor, Revenue_Share), sem Mínimo Contratual nem
+  // modelo_cobranca na conta (mínimo é ignorado neste modo específico, de propósito).
+  function getEconomiaComPiso(modo, enforced, floor, minimo, faturamentoParceiro, sharePct, modeloCobranca) {
+    const revenueShare = (faturamentoParceiro || 0) * sharePct;
+    let totalPayable;
+    if (modo === 'MAX') {
+      totalPayable = Math.max(floor, revenueShare);
+    } else if (modo === 'FLOOR_ONLY') {
+      totalPayable = floor;
+    } else if (modo === 'MINIMUM_ONLY') {
+      totalPayable = cobrancaHibrida(minimo, revenueShare, modeloCobranca);
+    } else {
+      const base = calcularComposicaoPisoMinimo(modo, floor, minimo);
+      totalPayable = modeloCobranca === 'SOMA' ? base + revenueShare : Math.max(base, revenueShare);
+    }
+    if (enforced && totalPayable < floor) totalPayable = floor;
+    const receitaParceiro = (faturamentoParceiro || 0) - totalPayable;
+    return {
+      infrastructure_floor: floor, minimum_contractual_fee: minimo, revenue_share: revenueShare,
+      total_payable: totalPayable, receita_optimon: totalPayable, receita_parceiro: receitaParceiro,
+      margem_parceiro: faturamentoParceiro > 0 ? receitaParceiro / faturamentoParceiro : null,
+    };
+  }
+
+  // Espelha app.calcular_breakeven_infra_floor(_clientes) (seção 34).
+  function calcularBreakevenInfraFloor(floor, sharePct) {
+    if (!sharePct) return null;
+    return floor / sharePct;
+  }
+  function calcularBreakevenInfraFloorClientes(floor, sharePct, arpu) {
+    const be = calcularBreakevenInfraFloor(floor, sharePct);
+    if (be == null || !arpu) return null;
+    return Math.ceil(be / arpu);
+  }
+
+  // ScenarioSimulator — espelha app.simular_projecao().
+  function simularProjecao(p) {
+    const meses = [];
+    let resultadoAcum = 0, capexAcum = 0, fluxoAcum = 0;
+    for (let m = 1; m <= p.mesesHorizonte; m++) {
+      const clientes = Math.min(p.clientesIniciais + p.crescimentoMensal * (m - 1), p.metaFinal || Infinity);
+      const portas = portasNecessarias(clientes, p.capacidadePorPorta);
+      const arpu = p.arpuInicial * Math.pow(1 + p.arpuCrescAnual, Math.floor((m - 1) / 12));
+      const faturamentoParceiro = clientes * arpu;
+      const fatorReajuste = Math.pow(1 + p.reajusteAnual, Math.floor((m - 1) / 12));
+      const fatorRampaMinimo = fatorRampa(m, p.rampaAtiva, 'FIXO_MINIMO', p.rampaAlvo);
+      const fatorRampaShare = fatorRampa(m, p.rampaAtiva, 'REVENUE_SHARE', p.rampaAlvo);
+      const minimo = p.minimoMensal * fatorReajuste * fatorRampaMinimo;
+      const share = faturamentoParceiro * p.sharePct * fatorReajuste * fatorRampaShare;
+      const receitaOptimon = cobrancaHibrida(minimo, share, p.modeloCobranca);
+      const resultado = receitaOptimon - p.opexIncremental;
+      const capexMes = m === 1 ? p.capexIncremental : 0;
+      const fluxo = resultado - capexMes;
+      resultadoAcum += resultado; capexAcum += capexMes; fluxoAcum += fluxo;
+      meses.push({ mes: m, clientes, portas, arpu, faturamentoParceiro, minimo, share, receitaOptimon,
+        fatorRampaMinimo, fatorRampaShare,
+        resultado, margem: receitaOptimon > 0 ? resultado / receitaOptimon : null,
+        capex: capexMes, fluxo, resultadoAcum, capexAcum, fluxoAcum });
+    }
+    return meses;
+  }
+  function calcularROI(meses, investimento, mes) {
+    if (!investimento) return null;
+    const linha = meses.find(x => x.mes === mes);
+    if (!linha) return null;
+    return linha.fluxoAcum / investimento;
+  }
+  function calcularPayback(meses, investimento) {
+    if (!investimento) return { mes: null, texto: "N/A — sem CAPEX incremental" };
+    const hit = meses.find(x => x.fluxoAcum >= investimento);
+    return hit ? { mes: hit.mes, texto: hit.mes + " meses" } : { mes: null, texto: "Não recuperado no período" };
+  }
+
+  /* ============================ FORMAT HELPERS ============================ */
+  const fmtBRL = v => v == null ? "—" : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+  const fmtBRLc = v => v == null ? "—" : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 });
+  const fmtPct = v => v == null ? "—" : (v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + "%";
+  const fmtInt = v => v == null ? "—" : v.toLocaleString('pt-BR');
+
+  /* ============================ UI STATE / WIRING ============================ */
+  const $ = id => document.getElementById(id);
+  const chipGroup = (containerId, single) => {
+    const el = $(containerId);
+    el.addEventListener('click', e => {
+      const btn = e.target.closest('.chip'); if (!btn) return;
+      if (single) [...el.children].forEach(c => c.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' && !single ? 'false' : 'true');
+      if (containerId === 'chip-meta') applyMeta(btn.dataset.val);
+      if (containerId === 'chip-prazo') $('in-prazo-val').value = btn.dataset.val;
+    });
+  };
+  chipGroup('chip-modelo-cobranca', true);
+  chipGroup('chip-rampa-alvo', true);
+  chipGroup('chip-prazo', true);
+  chipGroup('chip-meta', false);
+  chipGroup('chip-composicao-piso', true);
+  chipGroup('chip-perfil-governanca', true);
+  const hiddenPrazo = document.createElement('input'); hiddenPrazo.type = 'hidden'; hiddenPrazo.id = 'in-prazo-val'; hiddenPrazo.value = '48';
+  document.body.appendChild(hiddenPrazo);
+
+  function applyMeta(meta) {
+    const clientes0 = Number($('in-clientes0').value) || 0;
+    const prazo = Number($('in-prazo-val').value) || 48;
+    const cresc = Math.max(1, Math.ceil((Number(meta) - clientes0) / Math.max(prazo - 1, 1)));
+    $('in-cresc').value = cresc;
+  }
+
+  function readInputs() {
+    const modeloCobranca = document.querySelector('#chip-modelo-cobranca [aria-pressed="true"]').dataset.val;
+    const rampaAlvo = document.querySelector('#chip-rampa-alvo [aria-pressed="true"]').dataset.val;
+    return {
+      cidade: 'Jussara — PR', pop: $('in-pop').value, parceiro: $('in-parceiro').value, modelo: $('in-modelo').value,
+      qtdPortas: Number($('in-portas').value) || 1, capacidadePorPorta: Number($('in-cap').value) || 128,
+      fibras: Number($('in-fibras').value) || 1,
+      modeloCobranca, minimoMensal: Number($('in-minimo').value) || 0, sharePct: (Number($('in-share').value) || 0) / 100,
+      rampaAtiva: $('in-rampa').checked, rampaAlvo,
+      clientesIniciais: Number($('in-clientes0').value) || 0, crescimentoMensal: Number($('in-cresc').value) || 0,
+      arpuInicial: Number($('in-arpu').value) || 0, arpuCrescAnual: (Number($('in-arpu-cresc').value) || 0) / 100,
+      mesesHorizonte: Number($('in-prazo-val').value) || 48,
+      indice: $('in-indice').value, reajusteAnual: (Number($('in-reajuste').value) || 0) / 100,
+      capexIncremental: Number($('in-capex').value) || 0, opexIncremental: Number($('in-opex').value) || 0,
+      margemPct: (Number($('in-margem').value) || 0) / 100, riscoPct: (Number($('in-risco').value) || 0) / 100,
+      disponibilidade01: (Number($('in-disp').value) || 0) / 100,
+      precoProposto: $('in-proposto').value === '' ? null : Number($('in-proposto').value),
+      margemParcMinPct: $('in-margem-parc-min').value === '' ? null : Number($('in-margem-parc-min').value) / 100,
+      margemParcConfortavelPct: $('in-margem-parc-confortavel').value === '' ? null : Number($('in-margem-parc-confortavel').value) / 100,
+      roiExcelenciaPct: $('in-roi-excelencia').value === '' ? null : Number($('in-roi-excelencia').value) / 100,
+      pop1Portas: Number($('in-pop1-portas').value) || 0, pop2Portas: Number($('in-pop2-portas').value) || 0, pop3Portas: Number($('in-pop3-portas').value) || 0,
+      exclusivo: $('in-modelo').value === 'DARK' ? false : false, // exclusividade não tem input dedicado nesta simulação — default sem bônus (seção 65)
+      // Infrastructure Floor (Fase 2.2, seção 3/13/14) — parâmetros SEMPRE configuráveis no
+      // rail, nunca hard-coded no JS; default = exemplo oficial de Jussara (165 postes/5.000m).
+      postes: Number($('in-postes').value) || 0, kmRede: Number($('in-km-rede').value) || 0,
+      precoPoste: Number($('in-preco-poste').value) || 0,
+      precoMetroPiso: Number($('in-preco-metro-piso').value) || 0,
+      precoMetroRecomendado: Number($('in-preco-metro-recomendado').value) || 0,
+      precoMetroAbertura: Number($('in-preco-metro-abertura').value) || 0,
+      composicaoPiso: document.querySelector('#chip-composicao-piso [aria-pressed="true"]').dataset.val,
+      pisoEnforced: $('in-piso-enforced').checked,
+      fibrasOciosas: Number($('in-fibras-ociosas').value) || 0,
+      // Porta PON como componente direto do Floor (Fase 2.2.1, seção 3/16/19) — sempre
+      // informado pelo chamador, nunca inferido; e governança por papel (seção 12/35).
+      ponsCount: Number($('in-pons-count').value) || 0,
+      precoPonPiso: Number($('in-preco-pon-piso').value) || 0,
+      precoPonRecomendado: Number($('in-preco-pon-recomendado').value) || 0,
+      precoPonAbertura: Number($('in-preco-pon-abertura').value) || 0,
+      perfilGovernanca: document.querySelector('#chip-perfil-governanca [aria-pressed="true"]').dataset.val,
+      maxOverrideDiscountPct: (Number($('in-max-override-discount').value) || 0) / 100,
+    };
+  }
+
+  let lastSim = null;
+
+  function render() {
+    const p = readInputs();
+    const meses = simularProjecao(p);
+    const mFinal = meses[meses.length - 1];
+    const df = darkFiberPrecos(p.fibras, p.margemPct, p.riscoPct, p.disponibilidade01);
+    // Cenário 2: disponibilidade de capacidade de PORTA PON na cidade (não fibra) — aqui
+    // aproximada pela mesma % informada em "Disponibilidade de fibra", já que o painel
+    // não tem uma segunda entrada dedicada; no banco, app.get_disponibilidade_porta_pon_cidade
+    // mede isso de verdade a partir de infra_portas_pon.capacidade_disponivel.
+    const qtdPops = [p.pop1Portas, p.pop2Portas, p.pop3Portas].filter(x => x > 0).length;
+    const pp = portaPonPrecos(p.minimoMensal, p.qtdPortas, p.margemPct, p.riscoPct, p.disponibilidade01, p.exclusivo, qtdPops, false);
+
+    const isDark = p.modelo === 'DARK';
+    const precoMin = isDark ? df.minimo : pp.minimo;
+    const precoRec = isDark ? df.recomendado : pp.recomendado;
+    const precoPrem = isDark ? df.premium : pp.premium;
+    // Governança (seção 49) avalia o PREÇO PROPOSTO explícito (campo dedicado) contra
+    // mínimo/recomendado — nunca a receita simulada de um mês com rampa ativa, que é
+    // intencionalmente menor no início do contrato e não representa uma "proposta".
+    const governanca = p.precoProposto == null ? null : checkGovernanca(p.precoProposto, precoMin, precoRec);
+
+    $('out-pop').textContent = p.pop;
+    $('out-modelo').textContent = isDark ? 'Dark Fiber' : 'Porta PON + Revenue Share';
+    $('out-portas-cap').textContent = isDark ? (p.fibras + ' fibra(s) óptica(s)') : (p.qtdPortas + ' Porta(s) PON × ' + p.capacidadePorPorta + ' clientes');
+    $('hint-portas-necessarias').textContent = 'Portas necessárias no mês final: ' + portasNecessarias(mFinal.clientes, p.capacidadePorPorta) + ' (ceil(' + fmtInt(mFinal.clientes) + ' / ' + p.capacidadePorPorta + '))';
+    $('hint-escassez').textContent = 'Fator de escassez aplicado: ' + (isDark ? df.fEscassez : pp.fEscassez).toFixed(2) + '× (disponibilidade ' + (p.disponibilidade01*100).toFixed(0) + '%)';
+
+    $('price-min').textContent = fmtBRLc(precoMin);
+    $('price-rec').textContent = fmtBRLc(precoRec);
+    $('price-prem').textContent = fmtBRLc(precoPrem);
+    const gEl = $('badge-governanca');
+    gEl.textContent = governanca == null ? 'sem proposta' : governanca;
+    gEl.className = 'badge dot ' + (governanca == null ? '' : governanca === 'ALLOW' ? 'allow' : governanca === 'BLOCK' ? 'block' : 'warn');
+    gEl.style.background = governanca == null ? 'var(--surface-alt)' : '';
+    gEl.style.color = governanca == null ? 'var(--text-faint)' : '';
+
+    $('m-receita-optimon').textContent = fmtBRLc(meses[0].receitaOptimon);
+    $('m-receita-parceiro').textContent = fmtBRLc(meses[0].faturamentoParceiro);
+
+    const roi = calcularROI(meses, p.capexIncremental, p.mesesHorizonte);
+    $('m-roi').textContent = roi == null ? 'N/A — sem CAPEX' : fmtPct(roi);
+    const payback = calcularPayback(meses, p.capexIncremental);
+    $('m-payback').textContent = payback.texto;
+
+    const be = breakevenFaturamento(p.minimoMensal, p.sharePct);
+    const beClientes = breakevenClientes(p.minimoMensal, p.sharePct, p.arpuInicial);
+    $('m-breakeven').textContent = be == null ? '—' : fmtBRLc(be);
+    $('m-breakeven-clientes').textContent = beClientes == null ? 'defina ARPU/revenue share' : ('≈ ' + fmtInt(beClientes) + ' clientes');
+
+    // Viabilidade (seção 11/57) — 4 níveis, espelha app.classificar_negocio.
+    const margemParceiro = mFinal.faturamentoParceiro > 0 ? (mFinal.faturamentoParceiro - mFinal.receitaOptimon) / mFinal.faturamentoParceiro : null;
+    const classificacao = classificarNegocio(margemParceiro, p.margemParcMinPct, p.margemParcConfortavelPct, roi, p.roiExcelenciaPct);
+    const classEl = $('m-classificacao');
+    classEl.textContent = classificacao;
+    classEl.style.color = classificacao === 'PARAMETRIZÁVEL' ? 'var(--text-faint)'
+      : classificacao === 'INVIÁVEL' ? 'var(--critical)'
+      : classificacao === 'MARGEM BAIXA' ? 'var(--warning)'
+      : classificacao === 'EXCELENTE' ? 'var(--success)' : 'var(--accent-strong)';
+
+    drawRevenueChart(p, mFinal);
+    drawCapacityChart(p, mFinal);
+    drawCashflowChart(meses, p.capexIncremental);
+    renderComparisonTable(p, meses, df, mFinal);
+    renderMultiPopTable(p);
+    renderEconomicTable(p);
+
+    // Infrastructure Floor + régua comercial (Fase 2.2) — espelha app.calculate_infrastructure_floor
+    // + app.classificar_posicao_regua + app.check_infrastructure_floor_governance.
+    const floor = calculateInfrastructureFloor(p.postes, p.kmRede, p.precoPoste, p.precoMetroPiso, p.precoMetroRecomendado, p.precoMetroAbertura, p.ponsCount, p.precoPonPiso, p.precoPonRecomendado, p.precoPonAbertura);
+    $('floor-value').textContent = fmtBRLc(floor.floor_price);
+    $('floor-postes').textContent = fmtInt(floor.poles_count);
+    $('floor-km').textContent = p.kmRede.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+    $('floor-por-fibra').textContent = p.fibrasOciosas > 0 ? fmtBRLc(round2(floor.floor_price / p.fibrasOciosas)) : 'sem fibra ociosa';
+    $('floor-por-pon').textContent = p.qtdPortas > 0 ? fmtBRLc(round2(floor.floor_price / p.qtdPortas)) : '—';
+    $('floor-pon-component').textContent = fmtBRLc(floor.pon_component);
+    $('floor-pons-count').textContent = fmtInt(floor.pons_count);
+
+    $('rs-abertura').textContent = fmtBRLc(floor.opening_price);
+    $('rs-recomendado').textContent = fmtBRLc(floor.recommended_price);
+    $('rs-piso').textContent = fmtBRLc(floor.floor_price);
+    const posicaoRegua = p.precoProposto == null ? null : classificarPosicaoRegua(p.precoProposto, floor.opening_price, floor.recommended_price, floor.floor_price);
+    document.querySelectorAll('#regua-ladder .regua-step').forEach(el => el.classList.remove('current'));
+    if (posicaoRegua != null) {
+      const stepClass = posicaoRegua === 'PREÇO DE ABERTURA' ? 'abertura'
+        : (posicaoRegua === 'PREÇO RECOMENDADO' || posicaoRegua === 'DENTRO DA RÉGUA') ? 'recomendado'
+        : (posicaoRegua === 'PREÇO DE RESERVA' || posicaoRegua === 'DESCONTO SOBRE RECOMENDADO') ? 'piso' : 'bloqueado';
+      const stepEl = document.querySelector('#regua-ladder .regua-step.' + stepClass);
+      if (stepEl) stepEl.classList.add('current');
+    }
+    const governancaPiso = p.precoProposto == null ? null : checkInfraFloorGovernanca(p.precoProposto, floor.recommended_price, floor.floor_price);
+    const gpEl = $('badge-regua-governanca');
+    gpEl.textContent = governancaPiso == null ? 'sem proposta' : governancaPiso;
+    gpEl.className = 'badge dot ' + (governancaPiso == null ? '' : governancaPiso === 'ALLOW' ? 'allow' : governancaPiso === 'BLOCK' ? 'block' : 'warn');
+    gpEl.style.background = governancaPiso == null ? 'var(--surface-alt)' : '';
+    gpEl.style.color = governancaPiso == null ? 'var(--text-faint)' : '';
+    const negText = $('negotiation-text');
+    if (p.precoProposto == null) {
+      negText.textContent = 'Informe um preço proposto para negociar.';
+    } else {
+      const desc = calcularDescontoComercial(floor.opening_price, p.precoProposto, floor.recommended_price);
+      negText.textContent = posicaoRegua + ' — ' + fmtBRLc(p.precoProposto) +
+        (desc.descPctAbertura != null ? ' (' + fmtPct(desc.descPctAbertura) + ' abaixo da abertura)' : '') +
+        '. Diferença sobre o piso: ' + fmtBRLc(p.precoProposto - floor.floor_price) + '.';
+    }
+    $('out-composicao-piso').textContent = p.composicaoPiso;
+
+    // Governança por papel (Fase 2.2.1, seção 12/13/35) — 5 estados, ciente de quem está
+    // avaliando. COMERCIAL nunca vê ALLOW_WITH_DIRECTOR_OVERRIDE nem aprova nada abaixo do
+    // piso (BLOCK_FOR_COMMERCIAL); DIRETOR/ADMINISTRADOR podem pedir override até o piso
+    // absoluto de app.calcular_preco_minimo_autorizado.
+    const minimoAutorizado = calcularPrecoMinimoAutorizado(floor.opening_price, p.maxOverrideDiscountPct);
+    $('hint-preco-minimo-autorizado').textContent = 'Preço mínimo autorizável (override, ' + fmtPct(p.maxOverrideDiscountPct) + ' de desconto máx. sobre a abertura): ' + fmtBRLc(minimoAutorizado);
+    const governancaRole = p.precoProposto == null ? null : checkInfraFloorGovernancaRole(p.precoProposto, floor.recommended_price, floor.floor_price, floor.opening_price, p.maxOverrideDiscountPct, p.perfilGovernanca);
+    const grEl = $('badge-governanca-role');
+    grEl.textContent = governancaRole == null ? 'sem proposta' : governancaRole;
+    grEl.className = 'badge dot ' + (governancaRole == null ? '' : governancaRole === 'ALLOW' ? 'allow'
+      : (governancaRole === 'BLOCK' || governancaRole === 'BLOCK_FOR_COMMERCIAL') ? 'block' : 'warn');
+    grEl.style.background = governancaRole == null ? 'var(--surface-alt)' : '';
+    grEl.style.color = governancaRole == null ? 'var(--text-faint)' : '';
+    const roleText = $('negotiation-role-text');
+    if (governancaRole == null) {
+      roleText.textContent = 'Papel: ' + p.perfilGovernanca + '. Informe um preço proposto para avaliar.';
+    } else if (governancaRole === 'BLOCK_FOR_COMMERCIAL') {
+      roleText.textContent = 'Papel: ' + p.perfilGovernanca + '. Abaixo do piso — Comercial não pode autoaprovar (403/BLOCKED na API); precisa de DIRETOR/ADMINISTRADOR via PRICING_OVERRIDE.';
+    } else if (governancaRole === 'ALLOW_WITH_DIRECTOR_OVERRIDE') {
+      roleText.textContent = 'Papel: ' + p.perfilGovernanca + '. Abaixo do piso — autorizável só como override, com justificativa e auditoria (até ' + fmtBRLc(minimoAutorizado) + ').';
+    } else {
+      roleText.textContent = 'Papel: ' + p.perfilGovernanca + '.';
+    }
+
+    renderComparacaoPiso(p, mFinal, floor);
+    renderEconomicoPiso(p, floor);
+
+    lastSim = { p, meses, df, pp, precoMin, precoRec, precoPrem, roi, payback, be, beClientes, governanca, classificacao, floor, posicaoRegua, governancaPiso };
+    $('btn-proposta').disabled = false;
+  }
+
+  function round2(v) { return Math.round(v * 100) / 100; }
+
+  // Seção 30 — comparação econômica com Infrastructure Floor, para o contrato/mês corrente
+  // da simulação principal. Composição Floor × Mínimo Contratual segue o modo escolhido no
+  // rail (seção 32/33) — nunca soma "por acidente"; o Floor entra como rede de proteção
+  // final somente se "enforced" estiver ligado (seção 18).
+  function renderComparacaoPiso(p, mFinal, floor) {
+    const eco = getEconomiaComPiso(p.composicaoPiso, p.pisoEnforced, floor.floor_price, p.minimoMensal, mFinal.faturamentoParceiro, p.sharePct, p.modeloCobranca);
+    const rows = [
+      ['Infrastructure Floor', fmtBRLc(eco.infrastructure_floor)],
+      ['Mínimo contratual (Porta PON)', fmtBRLc(eco.minimum_contractual_fee)],
+      ['Revenue share', fmtBRLc(eco.revenue_share)],
+      ['Total a pagar (Parceiro → OptiMon)', fmtBRLc(eco.total_payable)],
+      ['Receita OptiMon', fmtBRLc(eco.receita_optimon)],
+      ['Receita parceiro', fmtBRLc(eco.receita_parceiro)],
+      ['Margem parceiro', fmtPct(eco.margem_parceiro)],
+    ];
+    const tbody = document.querySelector('#table-comparacao-piso tbody');
+    tbody.innerHTML = rows.map(r => '<tr><td class="row-label">' + r[0] + '</td><td class="mono">' + r[1] + '</td></tr>').join('');
+  }
+
+  // Seção 31 — teste de ARPU com Infrastructure Floor: mesma escala de clientes do teste
+  // econômico do Cenário 2 (10/25/50/75/84/100/128), agora mostrando também o Infra Floor e
+  // o total efetivamente a pagar sob a composição escolhida.
+  function renderEconomicoPiso(p, floor) {
+    const clientesList = [10, 25, 50, 75, 84, 100, 128];
+    const rows = clientesList.map(clientes => {
+      const faturamentoParceiro = clientes * p.arpuInicial;
+      const eco = getEconomiaComPiso(p.composicaoPiso, p.pisoEnforced, floor.floor_price, p.minimoMensal, faturamentoParceiro, p.sharePct, p.modeloCobranca);
+      return [clientes, faturamentoParceiro, eco.revenue_share, eco.infrastructure_floor, eco.minimum_contractual_fee, eco.total_payable, eco.receita_optimon, eco.margem_parceiro];
+    });
+    const tbody = document.querySelector('#table-economico-piso tbody');
+    tbody.innerHTML = rows.map(r => '<tr><td class="mono">' + fmtInt(r[0]) + '</td><td class="mono">' + fmtBRLc(r[1]) + '</td><td class="mono">' + fmtBRLc(r[2]) +
+      '</td><td class="mono">' + fmtBRLc(r[3]) + '</td><td class="mono">' + fmtBRLc(r[4]) + '</td><td class="mono">' + fmtBRLc(r[5]) +
+      '</td><td class="mono">' + fmtBRLc(r[6]) + '</td><td class="mono">' + fmtPct(r[7]) + '</td></tr>').join('');
+  }
+
+  // Seção 12 — Multi-POP: capacidade por POP + consolidado (espelha
+  // app.get_capacidade_multi_pop_contrato). Exemplo da seção: POP-01=2/POP-02=3/POP-03=1
+  // → consolidado 6 portas / 768 capacidade.
+  function renderMultiPopTable(p) {
+    const pops = [
+      ['POP-01', p.pop1Portas], ['POP-02', p.pop2Portas], ['POP-03', p.pop3Portas],
+    ].filter(([, portas]) => portas > 0);
+    const rows = pops.map(([nome, portas]) => [nome, fmtInt(portas), fmtInt(portas * p.capacidadePorPorta) + ' clientes']);
+    const totalPortas = pops.reduce((s, [, n]) => s + n, 0);
+    rows.push(['Consolidado (' + pops.length + ' POP' + (pops.length === 1 ? '' : 's') + ')', fmtInt(totalPortas), fmtInt(totalPortas * p.capacidadePorPorta) + ' clientes']);
+    const tbody = document.querySelector('#table-multipop tbody');
+    tbody.innerHTML = rows.map((r, i) => '<tr' + (i === rows.length - 1 ? ' style="font-weight:700"' : '') + '><td class="row-label">' + r[0] + '</td><td class="mono">' + r[1] + '</td><td class="mono">' + r[2] + '</td></tr>').join('');
+  }
+
+  // Seção 9 — teste econômico completo do Cenário 2: 1 Porta PON, 128 capacidade,
+  // clientes 10/25/50/75/84/100/128, usando ARPU/mínimo/share configurados no rail.
+  function renderEconomicTable(p) {
+    const clientesList = [10, 25, 50, 75, 84, 100, 128];
+    const rows = clientesList.map(clientes => {
+      const faturamentoParceiro = clientes * p.arpuInicial;
+      const share = faturamentoParceiro * p.sharePct;
+      const minimo = p.minimoMensal;
+      const receitaOptimon = cobrancaHibrida(minimo, share, p.modeloCobranca);
+      const receitaLiquidaOptimon = receitaOptimon - p.opexIncremental;
+      const margemParceiro = faturamentoParceiro > 0 ? (faturamentoParceiro - receitaOptimon) / faturamentoParceiro : null;
+      const margemOptimon = receitaOptimon > 0 ? receitaLiquidaOptimon / receitaOptimon : null;
+      return [clientes, faturamentoParceiro, share, minimo, receitaOptimon, receitaLiquidaOptimon, margemParceiro, margemOptimon];
+    });
+    const tbody = document.querySelector('#table-economico tbody');
+    tbody.innerHTML = rows.map(r => '<tr><td class="mono">' + fmtInt(r[0]) + '</td><td class="mono">' + fmtBRLc(r[1]) + '</td><td class="mono">' + fmtBRLc(r[2]) +
+      '</td><td class="mono">' + fmtBRLc(r[3]) + '</td><td class="mono">' + fmtBRLc(r[4]) + '</td><td class="mono">' + fmtBRLc(r[5]) +
+      '</td><td class="mono">' + fmtPct(r[6]) + '</td><td class="mono">' + fmtPct(r[7]) + '</td></tr>').join('');
+  }
+
+  /* ============================ CHARTS (canvas, hand-rolled) ============================ */
+  function css(varName) { return getComputedStyle(document.body).getPropertyValue(varName).trim(); }
+  function setupCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const h = canvas.height || 220;
+    canvas.width = Math.max(rect.width, 300) * dpr; canvas.height = h * dpr;
+    canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    return { ctx, w: canvas.width / dpr, h: canvas.height / dpr };
+  }
+
+  function drawRevenueChart(p, mFinal) {
+    const canvas = $('chart-revenue'); const { ctx, w, h } = setupCanvas(canvas);
+    ctx.clearRect(0, 0, w, h);
+    const pad = { l: 56, r: 16, t: 14, b: 26 };
+    const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+    const maxClientes = Math.max(mFinal.clientes * 1.15, 20);
+    const N = 40;
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const clientes = (maxClientes / N) * i;
+      const share = clientes * p.arpuInicial * p.sharePct;
+      const minimo = p.minimoMensal;
+      pts.push({ clientes, minimo, share, total: cobrancaHibrida(minimo, share, p.modeloCobranca) });
+    }
+    const maxY = Math.max(...pts.map(d => d.total)) * 1.1 || 1;
+    const x = c => pad.l + (c / maxClientes) * plotW;
+    const y = v => pad.t + plotH - (v / maxY) * plotH;
+
+    ctx.strokeStyle = css('--border'); ctx.fillStyle = css('--text-faint'); ctx.font = '10px ' + css('--font-mono') || 'monospace';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const yy = pad.t + (plotH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
+      ctx.fillText(fmtBRL(maxY - (maxY / 4) * i), 2, yy + 3);
+    }
+    ctx.fillText('0', pad.l - 2, h - pad.b + 14);
+    ctx.fillText(fmtInt(Math.round(maxClientes)) + ' clientes', w - pad.r - 70, h - pad.b + 14);
+
+    // stacked area: minimo (base) + share
+    ctx.beginPath(); ctx.moveTo(x(pts[0].clientes), y(0));
+    pts.forEach(d => ctx.lineTo(x(d.clientes), y(d.minimo)));
+    ctx.lineTo(x(pts[pts.length-1].clientes), y(0)); ctx.closePath();
+    ctx.fillStyle = css('--chart-a') + '55'; ctx.fill();
+
+    ctx.beginPath(); ctx.moveTo(x(pts[0].clientes), y(pts[0].minimo));
+    pts.forEach(d => ctx.lineTo(x(d.clientes), y(d.minimo + d.share)));
+    for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(x(pts[i].clientes), y(pts[i].minimo));
+    ctx.closePath(); ctx.fillStyle = css('--chart-b') + '55'; ctx.fill();
+
+    ctx.beginPath(); pts.forEach((d, i) => i ? ctx.lineTo(x(d.clientes), y(d.total)) : ctx.moveTo(x(d.clientes), y(d.total)));
+    ctx.strokeStyle = css('--text'); ctx.lineWidth = 2; ctx.stroke();
+
+    // breakeven marker
+    const be = breakevenClientes(p.minimoMensal, p.sharePct, p.arpuInicial);
+    if (be != null && be <= maxClientes) {
+      ctx.strokeStyle = css('--accent'); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x(be), pad.t); ctx.lineTo(x(be), pad.t + plotH); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = css('--accent-strong'); ctx.font = '600 11px ' + css('--font-body');
+      ctx.fillText('break-even ≈ ' + fmtInt(be), x(be) + 6, pad.t + 14);
+    }
+  }
+
+  function drawCapacityChart(p, mFinal) {
+    const canvas = $('chart-capacity'); const { ctx, w, h } = setupCanvas(canvas);
+    ctx.clearRect(0, 0, w, h);
+    const capacidadeTotal = Math.max(p.qtdPortas * p.capacidadePorPorta, 1);
+    const ativos = Math.min(mFinal.clientes, capacidadeTotal);
+    const pct = ativos / capacidadeTotal;
+    const cx = w / 2, cy = h / 2 - 6, r = Math.min(w, h) / 2 - 34, lw = 22;
+
+    ctx.lineWidth = lw; ctx.lineCap = 'round';
+    ctx.strokeStyle = css('--border-strong');
+    ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI * 1.5); ctx.stroke();
+    ctx.strokeStyle = css('--chart-a');
+    ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2); ctx.stroke();
+
+    ctx.fillStyle = css('--text'); ctx.textAlign = 'center';
+    ctx.font = '700 22px ' + css('--font-mono');
+    ctx.fillText((pct * 100).toFixed(0) + '%', cx, cy + 6);
+    ctx.font = '11px ' + css('--font-body'); ctx.fillStyle = css('--text-muted');
+    ctx.fillText('ocupação', cx, cy + 22);
+    ctx.textAlign = 'left';
+    ctx.font = '12px ' + css('--font-mono'); ctx.fillStyle = css('--text');
+    ctx.fillText(fmtInt(ativos) + ' ativos / ' + fmtInt(capacidadeTotal) + ' capacidade', 10, h - 8);
+  }
+
+  function drawCashflowChart(meses, investimento) {
+    const canvas = $('chart-cashflow'); const { ctx, w, h } = setupCanvas(canvas);
+    ctx.clearRect(0, 0, w, h);
+    const pad = { l: 60, r: 16, t: 14, b: 26 };
+    const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+    const minV = Math.min(0, ...meses.map(m => m.fluxoAcum), -investimento);
+    const maxV = Math.max(...meses.map(m => m.fluxoAcum), investimento, 1);
+    const x = m => pad.l + ((m - 1) / Math.max(meses.length - 1, 1)) * plotW;
+    const y = v => pad.t + plotH - ((v - minV) / (maxV - minV)) * plotH;
+
+    ctx.strokeStyle = css('--border'); ctx.fillStyle = css('--text-faint'); ctx.font = '10px ' + css('--font-mono');
+    [minV, 0, maxV].forEach(v => {
+      const yy = y(v);
+      ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
+      ctx.fillText(fmtBRL(v), 2, yy + 3);
+    });
+
+    if (investimento) {
+      ctx.strokeStyle = css('--chart-b'); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(pad.l, y(investimento)); ctx.lineTo(w - pad.r, y(investimento)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.beginPath(); meses.forEach((m, i) => i ? ctx.lineTo(x(m.mes), y(m.fluxoAcum)) : ctx.moveTo(x(m.mes), y(m.fluxoAcum)));
+    ctx.lineTo(x(meses[meses.length-1].mes), y(0)); ctx.lineTo(x(meses[0].mes), y(0)); ctx.closePath();
+    ctx.fillStyle = css('--chart-a') + '33'; ctx.fill();
+
+    ctx.beginPath(); meses.forEach((m, i) => i ? ctx.lineTo(x(m.mes), y(m.fluxoAcum)) : ctx.moveTo(x(m.mes), y(m.fluxoAcum)));
+    ctx.strokeStyle = css('--chart-a'); ctx.lineWidth = 2; ctx.stroke();
+
+    if (meses[0].capex > 0) {
+      ctx.fillStyle = css('--critical');
+      ctx.beginPath(); ctx.arc(x(1), y(-meses[0].capex + meses[0].resultado), 4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function renderComparisonTable(p, meses, df, mFinal) {
+    const horizontes = [1, 12, 36, 48, 60].filter(x => x <= p.mesesHorizonte || x === 1);
+    const receitaDark = df.recomendado;
+    const rows = [
+      ['Receita mensal (recomendado)', fmtBRLc(receitaDark), fmtBRLc(meses[0].receitaOptimon)],
+      ...[12, 36, 48, 60].map(hm => {
+        const linha = meses.find(m => m.mes === hm);
+        return ['Receita acumulada ' + hm + 'm', hm <= p.mesesHorizonte ? fmtBRL(receitaDark * hm) : '—', hm <= p.mesesHorizonte && linha ? fmtBRL(linha.resultadoAcum) : '—'];
+      }),
+      ['ROI @ horizonte', 'N/A — CAPEX não modelado', calcularROI(meses, p.capexIncremental, p.mesesHorizonte) != null ? fmtPct(calcularROI(meses, p.capexIncremental, p.mesesHorizonte)) : 'N/A — sem CAPEX'],
+      ['Payback', 'N/A — CAPEX não modelado', calcularPayback(meses, p.capexIncremental).texto],
+      ['Margem OptiMon', 'depende do custo incremental real (banco)', fmtPct(mFinal.margem)],
+      ['Risco comercial', 'baixo (fibra vendida, sem OPEX de cliente final)', 'médio (revenue share depende do parceiro crescer)'],
+      ['CAPEX', 'tipicamente zero (infra já existe)', fmtBRL(p.capexIncremental)],
+      ['OPEX incremental', 'zero por padrão', fmtBRL(p.opexIncremental) + '/mês'],
+      ['Complexidade operacional', 'baixa — só entrega a fibra', 'média — acompanhar capacidade/clientes ao longo do contrato'],
+    ];
+    const tbody = document.querySelector('#table-comparacao tbody');
+    tbody.innerHTML = rows.map(r => '<tr><td class="row-label">' + r[0] + '</td><td class="mono">' + r[1] + '</td><td class="mono">' + r[2] + '</td></tr>').join('');
+  }
+
+  $('btn-simular').addEventListener('click', render);
+  $('btn-proposta').addEventListener('click', () => {
+    if (!lastSim) return;
+    alert('Proposta gerada com os parâmetros exatos desta simulação (snapshot imutável — seção 60).\n\n' +
+      'Preço recomendado: ' + fmtBRLc(lastSim.precoRec) + '\nGovernança: ' + (lastSim.governanca || 'sem preço proposto informado') +
+      '\nROI: ' + (lastSim.roi == null ? 'N/A' : fmtPct(lastSim.roi)) + '\nPayback: ' + lastSim.payback.texto +
+      '\n\n(Em produção, isto grava em propostas_comerciais via POST /api/pricing/quote + snapshot.)');
+  });
+
+  window.addEventListener('resize', () => lastSim && render());
+  render();
+})();
+</script>

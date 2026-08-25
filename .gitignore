@@ -1,0 +1,55 @@
+# ==== OptiMon — .gitignore ====
+# Regra de ouro: NUNCA versionar segredos (service_role key, JWT secret,
+# DATABASE_URL com senha, tokens de API, credenciais HubSoft/Railway/Vercel).
+
+# --- Variáveis de ambiente reais (apenas .env.example é versionado) ---
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+.env.development
+api/.env
+web/.env
+web/.env.local
+web/.env.production
+
+# --- Node / npm ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+
+# --- Build outputs ---
+web/dist/
+web/build/
+dist/
+build/
+*.tsbuildinfo
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Test/coverage artifacts ---
+coverage/
+.nyc_output/
+
+# --- Local dev DB dumps (podem conter dados de teste) ---
+*.sql.bak
+/tmp/*.log
+
+# --- Deployment credentials / CLI local state ---
+.vercel/
+.railway/
+
+# --- PostgREST local dev config (pode referenciar credenciais locais) ---
+supabase/dev-local-only/postgrest.local.conf

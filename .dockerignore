@@ -1,0 +1,17 @@
+# Contexto de build = raiz do repo (ver railway.toml + api/Dockerfile).
+node_modules
+**/node_modules
+.git
+.gitignore
+*.log
+**/*.log
+.env
+.env.*
+!**/.env.example
+web/dist
+web/node_modules
+docs
+dashboard
+tests
+supabase/dev-local-only
+README.md

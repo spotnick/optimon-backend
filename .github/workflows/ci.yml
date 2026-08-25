@@ -1,0 +1,63 @@
+name: CI
+
+# OptiMon — seção 4: pelo menos install/lint/test/build em cada push/PR. Dois jobs
+# independentes (api/ e web/ têm cada um seu próprio package.json — monorepo, não um
+# workspace único) rodam em paralelo. Nenhum segredo real é usado aqui — o job da API sobe
+# contra variáveis fictícias só para provar que o server.js inicializa sem erro de sintaxe;
+# os testes reais de banco (tests/run_tests_*.sh) exigem um Postgres com o schema completo
+# e rodam localmente/no ambiente de deploy, não neste workflow leve de CI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api:
+    name: API (Node/Express)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint (sanity check — server.js carrega sem erro)
+        run: npm run lint
+      - name: Test (smoke test, sem banco real)
+        env:
+          SUPABASE_URL: https://ci-placeholder.supabase.co
+          SUPABASE_ANON_KEY: ci-placeholder-anon-key
+        run: npm test
+
+  web:
+    name: Web (React/Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        env:
+          VITE_API_URL: https://ci-placeholder.example.com
+          VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          VITE_APP_ENVIRONMENT: DEMONSTRAÇÃO
+        run: npm run build

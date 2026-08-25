@@ -1,0 +1,105 @@
+/* OptiMon — Design tokens (seção 37: identidade visual própria, corporativo/telecom/tech/
+   premium/clean). Paleta: azul-petróleo profundo (rede/infra) + teal (fibra óptica) como
+   acento, neutros levemente frios. Suporta tema claro (padrão) e escuro. */
+
+:root {
+  --font-display: 'Manrope', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* Marca */
+  --color-primary-900: #06263f;
+  --color-primary-700: #0f4c81;
+  --color-primary-600: #145d9c;
+  --color-primary-500: #1a72bd;
+  --color-accent-600: #0d9488;
+  --color-accent-500: #14b8a6;
+  --color-accent-400: #2dd4bf;
+
+  /* Neutros (leve viés frio, alinhado ao acento) */
+  --gray-950: #0a1420;
+  --gray-900: #101c2c;
+  --gray-800: #1a2b40;
+  --gray-700: #2c3e54;
+  --gray-500: #64748b;
+  --gray-300: #cbd5e1;
+  --gray-200: #e2e8f0;
+  --gray-100: #eef2f6;
+  --gray-50: #f7f9fb;
+
+  /* Status semânticos (régua de governança) — nunca reaproveitados como cor de série */
+  --status-allow: #15803d;
+  --status-allow-bg: #dcfce7;
+  --status-discount: #b45309;
+  --status-discount-bg: #fef3c7;
+  --status-director: #6d28d9;
+  --status-director-bg: #ede9fe;
+  --status-block: #b91c1c;
+  --status-block-bg: #fee2e2;
+
+  /* Tema claro (padrão) */
+  --bg: var(--gray-50);
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: var(--gray-200);
+  --text: var(--gray-950);
+  --text-muted: var(--gray-500);
+  --text-on-primary: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(10, 20, 32, 0.06);
+  --shadow-md: 0 4px 16px rgba(10, 20, 32, 0.08);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a1420;
+    --surface: #101c2c;
+    --surface-raised: #16233570;
+    --border: #24344a;
+    --text: #eef2f6;
+    --text-muted: #94a3b8;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}
