@@ -148,7 +148,9 @@ O Git vai pedir usuário/senha no push — use seu usuário do GitHub e o Person
 
 **2. Supabase — aplicar as 74 migrations**
 
-Pegue a senha real do banco em Project Settings → Database → Connection string (o valor que você colou tem `[YOUR-PASSWORD]` como placeholder, não a senha em si), e rode a partir da raiz do repositório:
+Pegue a senha real do banco em Project Settings → Database → Connection string (o valor que você colou tem `[YOUR-PASSWORD]` como placeholder, não a senha em si). Precisa do `psql` instalado (`psql --version` para conferir; se não tiver, instale o "Command Line Tools" do PostgreSQL — no Windows, `winget install PostgreSQL.PostgreSQL` ou o instalador em postgresql.org — só as ferramentas de cliente já bastam, não precisa instalar o servidor).
+
+macOS/Linux (bash/zsh), a partir da raiz do repositório:
 
 ```bash
 export DATABASE_URL="postgresql://postgres:<SENHA_REAL>@db.gwvdjqfevdcbhupzzpeu.supabase.co:5432/postgres"
@@ -158,7 +160,23 @@ for f in supabase/migrations/*.sql; do
 done
 ```
 
-Os arquivos já estão nomeados com prefixo de data — a ordem alfabética é a ordem correta de aplicação. Se quiser os dados de exemplo (Jussara-PR), rode depois `psql "$DATABASE_URL" -f supabase/seed.sql`, `seed_fase11.sql`, `seed_fase12.sql`, `seed_fase2.sql`, nessa ordem. Se alguma rota nova não aparecer imediatamente na API do Supabase, use "Reload schema cache" em Project Settings → API (o Supabase hospedado normalmente recarrega sozinho após DDL, mas o botão força na hora).
+Windows (PowerShell), a partir da raiz do repositório — `export` e o `for ... in ... do` acima são sintaxe de bash e não rodam no PowerShell, o equivalente é:
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:<SENHA_REAL>@db.gwvdjqfevdcbhupzzpeu.supabase.co:5432/postgres"
+
+$arquivos = Get-ChildItem "supabase\migrations\*.sql" | Sort-Object Name
+foreach ($f in $arquivos) {
+  Write-Host "Aplicando $($f.Name)..."
+  psql $env:DATABASE_URL -f $f.FullName
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "FALHOU em $($f.Name)"
+    break
+  }
+}
+```
+
+Os arquivos já estão nomeados com prefixo de data — a ordem alfabética (`Sort-Object Name` / a expansão `*.sql` do bash) é a ordem correta de aplicação. Se quiser os dados de exemplo (Jussara-PR), rode depois, na mesma sessão do terminal, `psql $env:DATABASE_URL -f supabase\seed.sql` (PowerShell) ou `psql "$DATABASE_URL" -f supabase/seed.sql` (bash), seguido de `seed_fase11.sql`, `seed_fase12.sql`, `seed_fase2.sql`, nessa ordem. Se alguma rota nova não aparecer imediatamente na API do Supabase, use "Reload schema cache" em Project Settings → API (o Supabase hospedado normalmente recarrega sozinho após DDL, mas o botão força na hora).
 
 **3. Railway — publicar a API**
 
