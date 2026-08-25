@@ -163,6 +163,7 @@ done
 Windows (PowerShell), a partir da raiz do repositório — `export` e o `for ... in ... do` acima são sintaxe de bash e não rodam no PowerShell, o equivalente é:
 
 ```powershell
+$env:PGCLIENTENCODING = "UTF8"
 $env:DATABASE_URL = "postgresql://postgres:<SENHA_REAL>@db.gwvdjqfevdcbhupzzpeu.supabase.co:5432/postgres"
 
 $arquivos = Get-ChildItem "supabase\migrations\*.sql" | Sort-Object Name
@@ -175,6 +176,24 @@ foreach ($f in $arquivos) {
   }
 }
 ```
+
+`$env:PGCLIENTENCODING = "UTF8"` é essencial no Windows: sem ela, o `psql` declara ao servidor que o texto vem em `WIN1252` (a codificação padrão do console do Windows), e qualquer migration com acento (praticamente todas, os comentários são em português) falha com `ERROR: character with byte sequence 0x... in encoding "WIN1252" has no equivalent in encoding "UTF8"` — e como a instrução inteira falha (não é parcial), migrations seguintes que dependem da função que devia ter sido criada falham em cascata com `function ... does not exist`. Se isso já aconteceu com você e o banco ficou pela metade, o mais seguro é resetar os schemas do projeto (só funciona limpo se o projeto ainda não tiver dados que você precise manter) e rodar tudo de novo já com a variável acima:
+
+```sql
+-- Cole no SQL Editor do painel do Supabase. Não toca em auth/storage — só nos
+-- schemas app/public, que são os que as migrations do OptiMon criam.
+drop schema if exists app cascade;
+drop schema if exists public cascade;
+
+create schema public;
+grant usage on schema public to postgres, anon, authenticated, service_role;
+grant create on schema public to postgres;
+alter default privileges in schema public grant all on tables to postgres, service_role;
+alter default privileges in schema public grant all on functions to postgres, service_role;
+alter default privileges in schema public grant all on sequences to postgres, service_role;
+```
+
+Um `ERROR: deadlock detected` isolado (costuma aparecer só em `20260825101300_rls_fase11.sql`, que mexe em RLS de várias tabelas de uma vez) é transitório — se acontecer, reaplique só aquele arquivo sozinho depois que o loop terminar.
 
 Os arquivos já estão nomeados com prefixo de data — a ordem alfabética (`Sort-Object Name` / a expansão `*.sql` do bash) é a ordem correta de aplicação. Se quiser os dados de exemplo (Jussara-PR), rode depois, na mesma sessão do terminal, `psql $env:DATABASE_URL -f supabase\seed.sql` (PowerShell) ou `psql "$DATABASE_URL" -f supabase/seed.sql` (bash), seguido de `seed_fase11.sql`, `seed_fase12.sql`, `seed_fase2.sql`, nessa ordem. Se alguma rota nova não aparecer imediatamente na API do Supabase, use "Reload schema cache" em Project Settings → API (o Supabase hospedado normalmente recarrega sozinho após DDL, mas o botão força na hora).
 
