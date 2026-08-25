@@ -127,13 +127,48 @@ O que **não** foi testado por não existir ainda: HubSoft, IBGE, integração f
 
 ## Deploy real (GitHub + Supabase + Railway + Vercel)
 
-Esta entrega **prepara** os 4 ambientes — não substitui a decisão do usuário de criar as contas/projetos, e não inclui nenhuma credencial real em nenhum arquivo versionado.
+Esta entrega **prepara** os 4 ambientes — não inclui nenhuma credencial real em nenhum arquivo versionado. Um repositório GitHub e um projeto Supabase já existem (criados pelo usuário); o push e a aplicação das migrations em produção, porém, exigem colar senha/token/chave de API em algum lugar para autenticar — e isso é uma linha que este assistente não atravessa mesmo com autorização explícita do usuário, então os 4 passos abaixo devem ser executados **pelo usuário**, no próprio terminal ou nos painéis Railway/Vercel/Supabase/GitHub. Tudo que não depende de segredo (código, migrations, Dockerfile, configs) já está pronto neste repositório.
 
 - **GitHub**: `.gitignore` cobre todo segredo conhecido (`.env`, `service_role`, `DATABASE_URL`, tokens); `.github/workflows/ci.yml` roda lint+teste da API e lint+build do frontend a cada push/PR, só com variáveis fictícias (nunca um segredo real em CI).
-- **Supabase**: ainda não existe um projeto Supabase para o OptiMon (nenhum foi criado nesta entrega). Quando o projeto existir, aplicar as 74 migrations em `supabase/migrations/` em ordem (`supabase db push` ou `psql` arquivo a arquivo — nunca `dev-local-only/`, que é só simulação para ambiente sem Supabase) — nunca recriar o banco, nunca apagar migration existente.
+- **Supabase**: projeto já existe. Aplicar as 74 migrations em `supabase/migrations/` em ordem (nunca `dev-local-only/`, que é só simulação para ambiente sem Supabase) — nunca recriar o banco, nunca apagar migration existente.
 - **Railway** (API): `api/Dockerfile` (multi-stage, `node:20-alpine`, `npm ci --omit=dev`, `HEALTHCHECK`) + `railway.toml` na raiz apontando para ele. Variáveis a configurar no painel: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `CORS_ALLOWED_ORIGINS` (a URL do Vercel), `APP_ENVIRONMENT=production`. **Nunca** `SUPABASE_SERVICE_ROLE_KEY` — a API não usa e não deve usar.
 - **Vercel** (frontend): `web/vercel.json` (SPA — todas as rotas caem em `index.html`; headers de segurança `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`; cache longo para `/assets`). Variáveis a configurar no painel: `VITE_API_URL` (a URL do Railway), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (a anon key é segura para expor no bundle público — nunca a service_role), `VITE_APP_ENVIRONMENT`.
 - **Pricing Engine centralizado**: o frontend nunca calcula preço — toda tela que mostra um valor chama `POST /api/pricing/calculate` (`api/lib/calculatePricing.js` → `public.pricing_calculate_full` → `app.simular_precificacao_completa`), que sempre recalcula no servidor a partir dos parâmetros vigentes, nunca confiando em um total vindo do cliente.
+
+### Passo a passo para você executar
+
+**1. GitHub — enviar o código**
+
+```bash
+git remote add origin https://github.com/helocodes/optimon.git
+git push -u origin main
+```
+
+O Git vai pedir usuário/senha no push — use seu usuário do GitHub e o Personal Access Token como senha (ou configure um credential helper). Depois de usar o PAT aqui, considere regenerá-lo no GitHub (Settings → Developer settings → Personal access tokens) já que ele circulou em texto puro nesta conversa.
+
+**2. Supabase — aplicar as 74 migrations**
+
+Pegue a senha real do banco em Project Settings → Database → Connection string (o valor que você colou tem `[YOUR-PASSWORD]` como placeholder, não a senha em si), e rode a partir da raiz do repositório:
+
+```bash
+export DATABASE_URL="postgresql://postgres:<SENHA_REAL>@db.gwvdjqfevdcbhupzzpeu.supabase.co:5432/postgres"
+for f in supabase/migrations/*.sql; do
+  echo "Aplicando $f..."
+  psql "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
+done
+```
+
+Os arquivos já estão nomeados com prefixo de data — a ordem alfabética é a ordem correta de aplicação. Se quiser os dados de exemplo (Jussara-PR), rode depois `psql "$DATABASE_URL" -f supabase/seed.sql`, `seed_fase11.sql`, `seed_fase12.sql`, `seed_fase2.sql`, nessa ordem. Se alguma rota nova não aparecer imediatamente na API do Supabase, use "Reload schema cache" em Project Settings → API (o Supabase hospedado normalmente recarrega sozinho após DDL, mas o botão força na hora).
+
+**3. Railway — publicar a API**
+
+Mais simples pelo painel: New Project → Deploy from GitHub repo → selecione `helocodes/optimon` → em Settings, confirme que o build usa `api/Dockerfile` (já configurado via `railway.toml`) → em Variables, adicione `SUPABASE_URL`, `SUPABASE_ANON_KEY` (a chave `anon`, nunca a `service_role`), `CORS_ALLOWED_ORIGINS` (preencha depois de ter a URL do Vercel) e `APP_ENVIRONMENT=production`. Depois do deploy, confirme `https://<seu-servico>.up.railway.app/health` → `{"status":"ok","service":"optimon-api"}`.
+
+**4. Vercel — publicar o frontend**
+
+Também mais simples pelo painel: Add New → Project → importe `helocodes/optimon` → Root Directory: `web` → Framework Preset: Vite (o `vercel.json` já traz o resto). Em Environment Variables: `VITE_API_URL` (a URL do Railway do passo 3), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (a chave `anon`), `VITE_APP_ENVIRONMENT=PRODUÇÃO` (ou `DEMONSTRAÇÃO`). Depois de publicado, volte no Railway e preencha `CORS_ALLOWED_ORIGINS` com a URL do Vercel.
+
+Depois dos 4 passos, me avise (ou cole o resultado de qualquer erro) que eu confiro os endpoints públicos e ajudo a depurar — sem precisar ver nenhuma credencial, só as URLs e mensagens de erro.
 
 O que falta para o deploy acontecer de fato: um repositório GitHub real (com o código enviado), um projeto Supabase real (criado pelo usuário — a criação de contas está fora do que esta sessão pode fazer), e os tokens do Railway/Vercel/GitHub para autenticar o deploy. Nenhum desses 4 itens está disponível nesta entrega; assim que estiverem, o deploy pode ser feito diretamente a partir do que já está pronto aqui, sem nenhuma mudança de arquitetura.
 
