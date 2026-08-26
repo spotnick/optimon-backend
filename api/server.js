@@ -6,6 +6,12 @@
 
 require('dotenv').config();
 const express = require('express');
+// Faz o Express (v4) encaminhar automaticamente qualquer erro/rejeição de handler async
+// para o middleware de erro abaixo — sem isso, um throw síncrono dentro de uma rota async
+// (ex.: SUPABASE_URL mal configurada quebrando createClient()) nunca gera resposta, e o
+// Railway derruba a conexão com 502 depois do timeout em vez de um erro limpo. Precisa
+// ser importado antes de qualquer `express.Router()` (routes/*.js) ser criado.
+require('express-async-errors');
 const cors = require('cors');
 const { requireAuth } = require('./middleware/auth');
 const pricingRoutes = require('./routes/pricing');
