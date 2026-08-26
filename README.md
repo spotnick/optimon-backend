@@ -12,7 +12,9 @@ docs/
 supabase/
   migrations/              # 74 migrations SQL (20 Fase 1 + 14 Fase 1.1 + 7 Fase 1.2 + 10 Fase 2 + 4 Fase 2.1 + 4 Fase 2.2
                              #   + 6 Fase 2.2.1 + 9 Fase 2.2.1 Parte 2/Deploy), aplicar em sequência
-  seed.sql                  # dados do primeiro caso real: Jussara-PR (Fase 1)
+  seed.sql                  # dados do primeiro caso real: Jussara-PR (Fase 1) — só para o shim local, insere em auth.users
+  seed_producao.sql          # mesmo seed acima, mas localiza um usuário ADMINISTRADOR já criado via Supabase Auth
+                               #   em vez de inserir em auth.users — use este contra um Supabase real
   seed_fase11.sql            # seed complementar da Fase 1.1: 2º POP, portas PON, aditivo, exclusividade escopada
   seed_fase12.sql             # seed complementar da Fase 1.2: 2ª porta do Parceiro B, contrato dark fiber com
                                #   modelo SOMA por default, clientes reais em cliente_porta_pon
@@ -53,7 +55,7 @@ As migrations da Fase 1 (prefixo `20260824...`), Fase 1.1 (`20260825...`), Fase 
 1. Crie o projeto no Supabase (ou use um já existente).
 2. Copie `supabase/migrations/*.sql` para dentro do seu projeto Supabase (`supabase/migrations/`) e rode `supabase db push`, ou aplique cada arquivo em ordem via `psql "$DATABASE_URL" -f supabase/migrations/XXXX.sql` — a ordem importa, os nomes já estão prefixados por timestamp.
 3. **Não copie `dev-local-only/`** — o schema `auth` e os papéis `authenticated`/`anon` já existem de verdade no Supabase; o shim é só para testar fora do Supabase.
-4. Rode `supabase/seed.sql` (Fase 1) e, em sequência (cada um depende do anterior), `supabase/seed_fase11.sql`, `supabase/seed_fase12.sql` e `supabase/seed_fase2.sql` se quiser os exemplos de porta PON/POP/aditivo/pricing/custos/contratos Dark Fiber. Todos criam usuários de exemplo — ajuste e-mail/uid para usuários reais criados via Supabase Auth antes de rodar em produção. A partir da Fase 2.1 (incluindo a 2.2, 2.2.1 e 2.2.1 Parte 2) nenhuma fase tem seed próprio — todas reaproveitam os mesmos dados do `seed_fase2.sql` (cidade Jussara, contratos 0005/0006). A Fase 2.2.1 muda o parâmetro vigente do Infrastructure Floor (`app.criar_pricing_version`, Pricing Version "2026.08.1") — se você já tinha propostas registradas sob a versão anterior ("2026.08"), elas continuam recalculáveis com os valores antigos passando `p_pricing_version` explicitamente nas funções (nunca recalculadas por acidente).
+4. Se quiser os dados de exemplo (Jussara-PR — porta PON/POP/aditivo/pricing/custos/contratos Dark Fiber), primeiro crie um usuário real em Supabase → Authentication → Users ("Auto Confirm User" marcado), copie o UID gerado, e vincule ele a um perfil com `insert into public.usuarios (id, nome, email, perfil) values ('<UID>', 'Seu Nome', 'seu-email@exemplo.com', 'ADMINISTRADOR');`. Só então rode, em sequência, `supabase/seed_producao.sql`, `supabase/seed_fase11.sql`, `supabase/seed_fase12.sql` e `supabase/seed_fase2.sql`. **Não use `supabase/seed.sql`** contra um Supabase real — ele insere direto em `auth.users`, o que só funciona no shim de desenvolvimento local; `seed_producao.sql` é o mesmo seed da Fase 1, mas localizando o usuário ADMINISTRADOR que você já criou em vez de tentar criar um novo. A partir da Fase 2.1 (incluindo a 2.2, 2.2.1 e 2.2.1 Parte 2) nenhuma fase tem seed próprio — todas reaproveitam os mesmos dados do `seed_fase2.sql` (cidade Jussara, contratos 0005/0006). A Fase 2.2.1 muda o parâmetro vigente do Infrastructure Floor (`app.criar_pricing_version`, Pricing Version "2026.08.1") — se você já tinha propostas registradas sob a versão anterior ("2026.08"), elas continuam recalculáveis com os valores antigos passando `p_pricing_version` explicitamente nas funções (nunca recalculadas por acidente).
 5. A API em `api/` agora é publicada de verdade (Railway) — ver a seção "Deploy real" abaixo. Para rodar localmente: `cd api && npm install && cp .env.example .env` (preencha `SUPABASE_URL`/`SUPABASE_ANON_KEY`, nunca `service_role`) `&& npm start` (ou `npm test` para o smoke test, `npm run lint`).
 6. O frontend em `web/` é a primeira versão visual funcional (React/Vite) — publicado no Vercel. Para rodar localmente: `cd web && npm install && cp .env.example .env` (preencha `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) `&& npm run dev`.
 7. O dashboard em `dashboard/optimon-pricing-dashboard.html` (entrega anterior, mantido) é self-contained (HTML+CSS+JS, sem build) — abra direto no navegador; ele simula com uma cópia em JS das mesmas fórmulas do banco, não chama a API. O frontend novo em `web/` é o substituto oficial: chama a API de verdade, nunca recalcula preço no cliente.
@@ -195,7 +197,16 @@ alter default privileges in schema public grant all on sequences to postgres, se
 
 Um `ERROR: deadlock detected` isolado (costuma aparecer só em `20260825101300_rls_fase11.sql`, que mexe em RLS de várias tabelas de uma vez) é transitório — se acontecer, reaplique só aquele arquivo sozinho depois que o loop terminar.
 
-Os arquivos já estão nomeados com prefixo de data — a ordem alfabética (`Sort-Object Name` / a expansão `*.sql` do bash) é a ordem correta de aplicação. Se quiser os dados de exemplo (Jussara-PR), rode depois, na mesma sessão do terminal, `psql $env:DATABASE_URL -f supabase\seed.sql` (PowerShell) ou `psql "$DATABASE_URL" -f supabase/seed.sql` (bash), seguido de `seed_fase11.sql`, `seed_fase12.sql`, `seed_fase2.sql`, nessa ordem. Se alguma rota nova não aparecer imediatamente na API do Supabase, use "Reload schema cache" em Project Settings → API (o Supabase hospedado normalmente recarrega sozinho após DDL, mas o botão força na hora).
+Os arquivos já estão nomeados com prefixo de data — a ordem alfabética (`Sort-Object Name` / a expansão `*.sql` do bash) é a ordem correta de aplicação. Se alguma rota nova não aparecer imediatamente na API do Supabase, use "Reload schema cache" em Project Settings → API (o Supabase hospedado normalmente recarrega sozinho após DDL, mas o botão força na hora).
+
+Se quiser os dados de exemplo (Jussara-PR), primeiro crie um usuário real em **Authentication → Users** no painel do Supabase (marque "Auto Confirm User"), copie o UID gerado, e vincule ele a um perfil rodando no **SQL Editor**:
+
+```sql
+insert into public.usuarios (id, nome, email, perfil)
+values ('<UID_COPIADO>', 'Seu Nome', 'seu-email@exemplo.com', 'ADMINISTRADOR');
+```
+
+Só então rode, na mesma sessão do terminal, `psql $env:DATABASE_URL -f supabase\seed_producao.sql` (PowerShell) ou `psql "$DATABASE_URL" -f supabase/seed_producao.sql` (bash), seguido de `seed_fase11.sql`, `seed_fase12.sql`, `seed_fase2.sql`, nessa ordem. **Nunca `supabase/seed.sql`** contra um Supabase real — esse insere direto em `auth.users`, o que só funciona no shim de desenvolvimento local (`supabase/dev-local-only/`); `seed_producao.sql` é o mesmo seed, mas localiza o usuário ADMINISTRADOR que você acabou de vincular em vez de tentar criar um novo.
 
 **3. Railway — publicar a API**
 

@@ -23,7 +23,7 @@ declare
   v_contrato_a uuid;
   v_contrato_b uuid;
 begin
-  select id into v_admin_id from public.usuarios where email = 'admin@optimon.local';
+  select id into v_admin_id from public.usuarios where perfil = 'ADMINISTRADOR' order by criado_em limit 1;
   select id into v_cidade_id from public.cidades_infra where nome = 'Jussara' and uf = 'PR';
   select id into v_cabo1_id from public.infra_cabos where identificacao = 'CABO-JUSSARA-01';
   select pop_id into v_pop1_id from public.infra_cabos where identificacao = 'CABO-JUSSARA-01';
