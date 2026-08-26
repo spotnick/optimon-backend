@@ -164,28 +164,41 @@ git push origin main
 
 **2. Supabase — aplicar só as 4 migrations novas**
 
-Mesmo runbook de sempre (ver a seção "Como aplicar num projeto Supabase real" acima para os detalhes de `$env:PGCLIENTENCODING` no Windows), mas agora só precisa rodar os 4 arquivos novos — os 74 anteriores já estão aplicados:
+Mesmo runbook de sempre (ver a seção "Como aplicar num projeto Supabase real" acima para os detalhes de `$env:PGCLIENTENCODING` no Windows), mas agora só precisa rodar os 4 arquivos novos — os 74 anteriores já estão aplicados. **Importante — `-v ON_ERROR_STOP=1` é obrigatório aqui** (os comandos abaixo já incluem): sem essa flag, o `psql` por padrão **não para nem sinaliza erro** quando uma instrução falha no meio de um arquivo — ele imprime o erro na tela e continua para a próxima instrução, e o `for`/`ForEach-Object` do runbook não percebe (o código de saída do `psql` continua sendo 0). Isso já aconteceu de verdade: um erro de encoding (`$env:PGCLIENTENCODING` não setado no PowerShell) no meio de `20260901090000_...sql` fez `CREATE FUNCTION app.criar_cidade(...)` (que tem comentário acentuado) falhar silenciosamente, e as funções que dependiam dela (`public.pricing_city_create`) nunca foram criadas — só apareceu depois, como `Could not find the function public.pricing_city_create(...) in the schema cache` no frontend.
 
 ```bash
 export DATABASE_URL="postgresql://postgres:<SENHA_REAL>@db.<seu-projeto>.supabase.co:5432/postgres"
 for f in supabase/migrations/20260901*.sql; do
   echo "Aplicando $f..."
-  psql "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
 done
 ```
 
-PowerShell (lembrando de `$env:PGCLIENTENCODING = "UTF8"` antes, pelo mesmo motivo já documentado acima):
+PowerShell (lembrando de `$env:PGCLIENTENCODING = "UTF8"` antes, pelo mesmo motivo já documentado acima — e confira com `echo $env:PGCLIENTENCODING` logo antes de rodar, já que não persiste entre janelas):
 
 ```powershell
 $env:PGCLIENTENCODING = "UTF8"
 $env:DATABASE_URL = "postgresql://postgres:<SENHA_REAL>@db.<seu-projeto>.supabase.co:5432/postgres"
 Get-ChildItem "supabase\migrations\20260901*.sql" | Sort-Object Name | ForEach-Object {
   Write-Host "Aplicando $($_.Name)..."
-  psql $env:DATABASE_URL -f $_.FullName
+  psql -v ON_ERROR_STOP=1 $env:DATABASE_URL -f $_.FullName
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "FALHOU em $($_.Name)"
+  }
 }
 ```
 
-Depois de aplicar, use "Reload schema cache" em Project Settings → API no painel do Supabase se as rotas novas (`pricing_city_infra_tree`, etc.) não aparecerem imediatamente.
+As 4 migrations desta fase são seguras para rodar de novo do zero se já rodaram parcialmente antes desta correção — todas usam `add column if not exists`, `create or replace function` e um `if not exists (...) then create trigger ...` explícito, então reaplicar não duplica nada nem quebra por "já existe".
+
+**Antes de aplicar, um jeito rápido de confirmar o que realmente existe hoje no seu Supabase** — cole no SQL Editor do painel (interface web, sempre UTF-8, contorna de vez o problema de encoding do terminal):
+
+```sql
+select proname, pg_get_function_identity_arguments(oid)
+from pg_proc
+where proname in ('pricing_city_create', 'pricing_city_update', 'pricing_city_archive', 'pricing_city_infra_tree', 'pricing_cable_create_with_fibers');
+```
+
+Se vier menos de 5 linhas, pelo menos uma dessas migrations não terminou de aplicar — reaplique-as (pode ser mais simples colar o conteúdo de cada arquivo `.sql` direto no SQL Editor, um de cada vez, em vez de lutar com encoding de terminal). Depois de aplicar, use "Reload schema cache" em Project Settings → API no painel do Supabase se as rotas novas não aparecerem imediatamente.
 
 **3. Railway e Vercel — redeploy**
 
@@ -218,7 +231,7 @@ macOS/Linux (bash/zsh), a partir da raiz do repositório:
 export DATABASE_URL="postgresql://postgres:<SENHA_REAL>@db.gwvdjqfevdcbhupzzpeu.supabase.co:5432/postgres"
 for f in supabase/migrations/*.sql; do
   echo "Aplicando $f..."
-  psql "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
 done
 ```
 
@@ -231,7 +244,7 @@ $env:DATABASE_URL = "postgresql://postgres:<SENHA_REAL>@db.gwvdjqfevdcbhupzzpeu.
 $arquivos = Get-ChildItem "supabase\migrations\*.sql" | Sort-Object Name
 foreach ($f in $arquivos) {
   Write-Host "Aplicando $($f.Name)..."
-  psql $env:DATABASE_URL -f $f.FullName
+  psql -v ON_ERROR_STOP=1 $env:DATABASE_URL -f $f.FullName
   if ($LASTEXITCODE -ne 0) {
     Write-Host "FALHOU em $($f.Name)"
     break
@@ -239,7 +252,9 @@ foreach ($f in $arquivos) {
 }
 ```
 
-`$env:PGCLIENTENCODING = "UTF8"` é essencial no Windows: sem ela, o `psql` declara ao servidor que o texto vem em `WIN1252` (a codificação padrão do console do Windows), e qualquer migration com acento (praticamente todas, os comentários são em português) falha com `ERROR: character with byte sequence 0x... in encoding "WIN1252" has no equivalent in encoding "UTF8"` — e como a instrução inteira falha (não é parcial), migrations seguintes que dependem da função que devia ter sido criada falham em cascata com `function ... does not exist`. Se isso já aconteceu com você e o banco ficou pela metade, o mais seguro é resetar os schemas do projeto (só funciona limpo se o projeto ainda não tiver dados que você precise manter) e rodar tudo de novo já com a variável acima:
+`-v ON_ERROR_STOP=1` é tão essencial quanto `PGCLIENTENCODING` e por muito tempo faltou neste runbook — **sem ela, um erro no meio de um arquivo não para o `psql`**: ele imprime o erro e segue para a próxima instrução do mesmo arquivo, com código de saída 0 (sucesso) no final, então nem o `||`/`$LASTEXITCODE` do loop percebe. Foi exatamente assim que uma migration da Fase 2.3 aplicou "com sucesso" aparente no terminal, mas deixou uma função inteira faltando no banco (ver `docs/RELATORIO_FASE23.md` — a seção de troubleshooting, se você chegou aqui vindo de um erro `Could not find the function ... in the schema cache`). Com a flag, qualquer erro interrompe o `psql` imediatamente com código de saída 3, e o loop para de verdade no arquivo que falhou.
+
+`$env:PGCLIENTENCODING = "UTF8"` é essencial no Windows: sem ela, o `psql` declara ao servidor que o texto vem em `WIN1252` (a codificação padrão do console do Windows), e qualquer migration com acento (praticamente todas, os comentários são em português) falha com `ERROR: character with byte sequence 0x... in encoding "WIN1252" has no equivalent in encoding "UTF8"` — agora, com `ON_ERROR_STOP=1`, esse erro interrompe o script na hora em vez de deixar migrations seguintes falharem em cascata (`function ... does not exist`) por dependerem de algo que devia ter sido criado e não foi. Se isso já aconteceu com você e o banco ficou pela metade (bem provável se você aplicou migrations antes desta correção do runbook), o mais seguro é resetar os schemas do projeto (só funciona limpo se o projeto ainda não tiver dados que você precise manter) e rodar tudo de novo já com a variável acima — **ou**, se o projeto já tem dados reais que você não quer perder (o caso mais comum agora que Jussara já está em produção), simplesmente reaplicar as migrations que faltaram: todas usam `create or replace function`/`if not exists`, então reaplicar não quebra nada, só preenche o que faltou.
 
 ```sql
 -- Cole no SQL Editor do painel do Supabase. Não toca em auth/storage — só nos
