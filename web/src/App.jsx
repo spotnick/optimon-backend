@@ -3,7 +3,10 @@ import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Cities from './pages/Cities';
+import NewCity from './pages/NewCity';
 import CityDetail from './pages/CityDetail';
+import EditCity from './pages/EditCity';
 import NewSimulation from './pages/NewSimulation';
 import Proposals from './pages/Proposals';
 import Audit from './pages/Audit';
@@ -20,8 +23,10 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
-        <Route path="/cidades/jussara" element={<CityDetail jussara />} />
+        <Route path="/cidades" element={<Cities />} />
+        <Route path="/cidades/nova" element={<NewCity />} />
         <Route path="/cidades/:id" element={<CityDetail />} />
+        <Route path="/cidades/:id/editar" element={<EditCity />} />
         <Route path="/simulacao" element={<NewSimulation />} />
         <Route path="/propostas" element={<Proposals />} />
         <Route path="/auditoria" element={<Audit />} />

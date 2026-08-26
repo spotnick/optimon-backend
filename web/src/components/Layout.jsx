@@ -5,7 +5,7 @@ const ENV = import.meta.env.VITE_APP_ENVIRONMENT || 'DEMONSTRAÇÃO';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '◧' },
-  { to: '/cidades/jussara', label: 'Jussara — PR', icon: '◈' },
+  { to: '/cidades', label: 'Cidades & Infraestrutura', icon: '◈' },
   { to: '/simulacao', label: 'Nova Simulação', icon: '✎' },
   { to: '/propostas', label: 'Propostas', icon: '▤' },
   { to: '/auditoria', label: 'Auditoria', icon: '≣' },

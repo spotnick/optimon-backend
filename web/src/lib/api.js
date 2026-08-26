@@ -48,6 +48,23 @@ export const api = {
   cities: {
     list: () => request('/api/cities'),
     detail: (id) => request(`/api/cities/${id}`),
+    create: (body) => request('/api/cities', { method: 'POST', body }),
+    update: (id, body) => request(`/api/cities/${id}`, { method: 'PATCH', body }),
+    archive: (id) => request(`/api/cities/${id}/archive`, { method: 'POST' }),
+  },
+
+  infra: {
+    tree: (cidadeId) => request(`/api/infra/tree?cidade_id=${cidadeId}`),
+    createPop: (body) => request('/api/infra/pops', { method: 'POST', body }),
+    updatePop: (id, body) => request(`/api/infra/pops/${id}`, { method: 'PATCH', body }),
+    listSegments: (cidadeId) => request(`/api/infra/segments?cidade_id=${cidadeId}`),
+    createSegment: (body) => request('/api/infra/segments', { method: 'POST', body }),
+    createCable: (body) => request('/api/infra/cables', { method: 'POST', body }),
+    cableFibers: (cableId) => request(`/api/infra/cables/${cableId}/fibers`),
+    updateFiber: (id, body) => request(`/api/infra/fibers/${id}`, { method: 'PATCH', body }),
+    createPole: (body) => request('/api/infra/poles', { method: 'POST', body }),
+    createPonPort: (body) => request('/api/infra/pon-ports', { method: 'POST', body }),
+    updatePonPort: (id, body) => request(`/api/infra/pon-ports/${id}`, { method: 'PATCH', body }),
   },
 
   pricing: {

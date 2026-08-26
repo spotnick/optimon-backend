@@ -50,8 +50,9 @@ export default function NewSimulation() {
   useEffect(() => {
     api.cities.list().then((list) => {
       setCities(list);
-      const jussara = list.find((c) => c.nome === 'Jussara');
-      if (jussara) setCidadeId(jussara.cidade_id);
+      // Nenhuma cidade especial — seleciona a primeira da lista (ordenada por nome pela
+      // API) só como conveniência de UX, igual a qualquer outro <select> pré-preenchido.
+      if (list.length > 0) setCidadeId(list[0].cidade_id);
     }).catch((err) => setError(err.message));
     api.pricing.ramp().then(setRamp).catch(() => {});
   }, []);

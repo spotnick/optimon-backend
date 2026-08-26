@@ -80,11 +80,7 @@ export default function Dashboard() {
                   <td className="num">{Number(c.clientes_ativos).toLocaleString('pt-BR')}</td>
                   <td className="num">{(Number(c.taxa_ocupacao || 0) * 100).toFixed(1)}%</td>
                   <td>
-                    <Link
-                      to={c.nome === 'Jussara' ? '/cidades/jussara' : `/cidades/${c.cidade_id}`}
-                      className="link-tab"
-                      style={{ fontSize: '0.82rem' }}
-                    >
+                    <Link to={`/cidades/${c.cidade_id}`} className="link-tab" style={{ fontSize: '0.82rem' }}>
                       Ver detalhe →
                     </Link>
                   </td>

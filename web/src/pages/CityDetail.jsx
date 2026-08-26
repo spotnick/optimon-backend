@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import ReguaDePreco from '../components/ReguaDePreco';
+
+const STATUS_LABEL = { ATIVA: 'Ativa', INATIVA: 'Inativa', PLANEJADA: 'Planejada' };
+const CAN_EDIT_INFRA = ['ENGENHARIA', 'ADMINISTRADOR'];
 
 function Kpi({ label, value, sub }) {
   return (
@@ -13,24 +17,21 @@ function Kpi({ label, value, sub }) {
   );
 }
 
-export default function CityDetail({ jussara = false }) {
+// Nenhuma cidade tem tratamento especial aqui — a página é sempre resolvida por
+// :id via useParams(), igual para Jussara, Andirá ou qualquer outra (seção 34/42).
+export default function CityDetail() {
   const params = useParams();
+  const { role } = useAuth();
   const [city, setCity] = useState(null);
   const [fibras, setFibras] = useState(null);
   const [pricing, setPricing] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    let cidadeId = params.id;
+    const cidadeId = params.id;
 
     async function load() {
       try {
-        if (jussara) {
-          const cities = await api.cities.list();
-          const jussaraCity = cities.find((c) => c.nome === 'Jussara');
-          if (!jussaraCity) throw new Error('Cidade Jussara não encontrada.');
-          cidadeId = jussaraCity.cidade_id;
-        }
         const [cityDetail, fibrasData] = await Promise.all([
           api.cities.detail(cidadeId),
           api.pricing.fibrasIndicadores({ cidade_id: cidadeId }),
@@ -46,16 +47,28 @@ export default function CityDetail({ jussara = false }) {
       }
     }
     load();
-  }, [params.id, jussara]);
+  }, [params.id]);
 
   if (error) return <div className="page"><div className="error-banner">{error}</div></div>;
   if (!city) return <div className="page"><div className="spinner" /></div>;
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>{city.nome} — {city.uf}</h1>
-        <p>{city.endereco || 'Infraestrutura, capacidade e régua de preço.'}</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1>
+            {city.nome} — {city.uf}{' '}
+            <span className={`badge status-${city.status === 'ATIVA' ? 'allow' : city.status === 'PLANEJADA' ? 'discount' : 'block'}`} style={{ verticalAlign: 'middle', marginLeft: 8 }}>
+              {STATUS_LABEL[city.status] || city.status}
+            </span>
+          </h1>
+          <p>{city.endereco || 'Infraestrutura, capacidade e régua de preço.'}</p>
+        </div>
+        {CAN_EDIT_INFRA.includes(role) && (
+          <Link to={`/cidades/${city.cidade_id}/editar`} className="btn btn-primary">
+            Editar Infraestrutura
+          </Link>
+        )}
       </div>
 
       <div className="card-grid" style={{ marginBottom: 28 }}>

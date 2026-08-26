@@ -16,6 +16,7 @@ const cors = require('cors');
 const { requireAuth } = require('./middleware/auth');
 const pricingRoutes = require('./routes/pricing');
 const citiesRoutes = require('./routes/cities');
+const infraRoutes = require('./routes/infra');
 const simulationsRoutes = require('./routes/simulations');
 const proposalsRoutes = require('./routes/proposals');
 const auditRoutes = require('./routes/audit');
@@ -48,6 +49,7 @@ app.use(
 // (seção 33/53). RBAC/RLS de verdade acontecem no Postgres; esta API só encaminha o JWT.
 app.use('/api/pricing', requireAuth, pricingRoutes);
 app.use('/api/cities', requireAuth, citiesRoutes);
+app.use('/api/infra', requireAuth, infraRoutes);
 app.use('/api/simulations', requireAuth, simulationsRoutes);
 app.use('/api/proposals', requireAuth, proposalsRoutes);
 app.use('/api/audit', requireAuth, auditRoutes);

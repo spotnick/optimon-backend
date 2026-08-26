@@ -2,16 +2,16 @@
 
 Entrega da **Fase 1** (Banco + Auth + Infraestrutura + Parceiros + Contratos) + **Fase 1.1** (porta PON como unidade comercial real, POPs, aditivos, metas, exclusividade escopada) + **Fase 1.2** (hardening comercial: SOMA como modelo híbrido padrão, capacidade contratada×reservada×ativa, conflito compartilhamento×exclusividade, relação cliente→porta PON, preparação de pricing) + **Fase 2** (Pricing Engine completo: custos classificados, Dark Fiber mínimo/recomendado/premium, Revenue Share/SOMA/MAX, rampa, reajuste, projeção financeira, ROI, payback, economia do parceiro, governança de preço, override, auditoria, API source-only e dashboard comercial) + **Fase 2.1** (correções de consistência comercial: fibra individual como unidade padrão do Dark Fiber, motor de preço real do Cenário 2/Porta PON, rampa respeitando `rampa_aplica_a` por componente, viabilidade em 4 níveis, capacidade Multi-POP por contrato, 2 lacunas de auditoria fechadas) + **Fase 2.2** (Infrastructure Floor / Piso de Infraestrutura: política comercial de monetização mínima da infraestrutura óptica — postes + metros de rede —, nunca custo real; régua comercial de 3 níveis Abertura/Recomendado/Piso com governança e desconto; composição explícita Floor×Mínimo Contratual sem somar por acidente; indicadores por fibra ociosa/Porta PON; break-even e escala de portas; parametrização com override por cidade e versionamento) + **Fase 2.2.1** (ajuste final de governança + precificação por Porta PON: Porta PON como componente direto do Floor — não só indicador —, novos preços oficiais (poste R$8,00, PON piso/recomendado/abertura R$200/250/300), governança de 5 estados ciente do papel de quem decide, piso absoluto de 50% de desconto de override enforçado até na trigger, versionamento real de parâmetros — não mais cosmético —, MAX redefinido como MAX(Floor,Revenue Share), auditoria detalhada do override com cidade/POP/desconto), conforme o Prompt Mestre de Desenvolvimento do OptiMon.
 
-Banco de dados + arquitetura + API + dashboard comercial interativo, agora com uma **Fase 2.2.1 (Parte 2)**: "AJUSTE FINAL DO PRICING ENGINE + RÉGUA DE PREÇO + PRIMEIRA VERSÃO VISUAL FUNCIONAL + DEPLOYMENT DOS AMBIENTES" — o Pricing Engine centralizado no backend (`calculatePricing()`, nunca confia em valor vindo do cliente), uma superfície de API completa para o frontend, um frontend React funcional de ponta a ponta (login, dashboard, régua de preço, Nova Simulação, propostas, auditoria) e a preparação dos 3 ambientes de deploy — GitHub, Railway (API) e Vercel (frontend), sobre um projeto Supabase (banco). Ver a seção "Deploy real" abaixo para o estado exato do deploy nesta entrega, e `docs/RELATORIO_FASE221_PARTE2.md` para o relatório final (19 itens) e o checklist de aceite (19 itens) desta fase. A Fase 2.2.1 não avança automaticamente para a Fase 3 — a próxima etapa (HubSoft, financeiro do parceiro, IBGE, alertas avançados, propostas/documentos) será definida pelo usuário (ver `docs/ARQUITETURA.md`, seção 12).
+Banco de dados + arquitetura + API + dashboard comercial interativo, com uma **Fase 2.2.1 (Parte 2)**: "AJUSTE FINAL DO PRICING ENGINE + RÉGUA DE PREÇO + PRIMEIRA VERSÃO VISUAL FUNCIONAL + DEPLOYMENT DOS AMBIENTES" — o Pricing Engine centralizado no backend (`calculatePricing()`, nunca confia em valor vindo do cliente), uma superfície de API completa para o frontend, um frontend React funcional de ponta a ponta (login, dashboard, régua de preço, Nova Simulação, propostas, auditoria) e os 3 ambientes de deploy — GitHub, Railway (API) e Vercel (frontend), sobre um projeto Supabase (banco), já publicados de verdade (ver "Deploy real" abaixo). E agora com a **Fase 2.3**: "MÓDULO DE GESTÃO DE CIDADES E INFRAESTRUTURA" — o OptiMon deixa de ser um projeto de demonstração de uma única cidade (Jussara-PR hard-coded em rota/menu/componente) e passa a ser tratado como produto multi-cidade de verdade: CRUD completo de cidades (criar/editar/arquivar, nunca DELETE físico), CRUD de POP/segmento/cabo (com geração automática das fibras)/poste/porta PON, uma visão consolidada por cidade, RBAC/RLS por rota reaproveitando o mesmo `app.tem_perfil()` de sempre, e auditoria automática (via os mesmos triggers genéricos `fn_auditoria()`) cobrindo as 7 tabelas de infraestrutura. Jussara continua sendo o primeiro registro real do banco (e a baseline de regressão — nunca alterada por acidente), mas nenhum código a trata como especial. Ver `docs/RELATORIO_FASE23.md` para o relatório final e o checklist de aceite (22 itens) desta fase — inclusive o único item ainda pendente (deploy real desta entrega, ver "Deploy real" abaixo). A Fase 2.3 não avança automaticamente para a Fase 3 — a próxima etapa será definida pelo usuário (ver `docs/ARQUITETURA.md`, seção 12).
 
 ## O que tem aqui
 
 ```
 docs/
-  ARQUITETURA.md          # plano técnico completo: stack, RBAC, modelo de dados, Fase 1.1/1.2/2/2.1/2.2/2.2.1(P2), fases
+  ARQUITETURA.md          # plano técnico completo: stack, RBAC, modelo de dados, Fase 1.1/1.2/2/2.1/2.2/2.2.1(P2)/2.3, fases
 supabase/
-  migrations/              # 74 migrations SQL (20 Fase 1 + 14 Fase 1.1 + 7 Fase 1.2 + 10 Fase 2 + 4 Fase 2.1 + 4 Fase 2.2
-                             #   + 6 Fase 2.2.1 + 9 Fase 2.2.1 Parte 2/Deploy), aplicar em sequência
+  migrations/              # 78 migrations SQL (20 Fase 1 + 14 Fase 1.1 + 7 Fase 1.2 + 10 Fase 2 + 4 Fase 2.1 + 4 Fase 2.2
+                             #   + 6 Fase 2.2.1 + 9 Fase 2.2.1 Parte 2/Deploy + 4 Fase 2.3), aplicar em sequência
   seed.sql                  # dados do primeiro caso real: Jussara-PR (Fase 1) — só para o shim local, insere em auth.users
   seed_producao.sql          # mesmo seed acima, mas localiza um usuário ADMINISTRADOR já criado via Supabase Auth
                                #   em vez de inserir em auth.users — use este contra um Supabase real
@@ -28,8 +28,11 @@ supabase/
     rest_v1_proxy.js          # remove o prefixo /rest/v1 que supabase-js sempre adiciona, para falar com PostgREST puro
 api/
   server.js, routes/, lib/, middleware/, Dockerfile, .dockerignore   # API REST do Pricing Engine — publicada no Railway
+  routes/cities.js          # CRUD de cidades (criar/editar/arquivar) — Fase 2.3
+  routes/infra.js            # CRUD de POP/segmento/cabo/fibra/poste/porta PON — Fase 2.3
 web/
   src/pages/, src/components/, src/lib/, src/context/   # frontend React (Vite) — publicado no Vercel
+  src/pages/Cities.jsx, NewCity.jsx, EditCity.jsx   # tela "Cidades & Infraestrutura" — Fase 2.3 (genérica p/ qualquer cidade)
   vercel.json              # rotas SPA + headers de segurança para o deploy no Vercel
 dashboard/
   optimon-pricing-dashboard.html   # dashboard comercial interativo (seções 36-41, 58-59), self-contained
@@ -43,12 +46,16 @@ tests/
                              #   completa Fase 1/1.1/1.2/2/2.1/2.2 — reexecuta run_tests_fase22.sh original, sem editar)
   run_tests_deploy.sh       # bateria de testes da Fase 2.2.1 Parte 2 (PASSO-0/1 + TESTE-D1..D7 + E2E-1..8, 18/18) —
                              #   sobe PostgREST local + a API real e testa por HTTP com JWT, não só via psql
+  run_tests_fase23.sh       # bateria de testes da Fase 2.3 (seções 26-33/38, 54/54) — reexecuta run_tests_deploy.sh
+                             #   original, sem editar, e por cima aplica as 4 migrations novas desta fase
+  e2e_fase23.js              # E2E Playwright obrigatório da seção 40 (11/11) — login→Nova Cidade→POP→cabo→
+                             #   Nova Simulação→Pricing→Dashboard, contra o frontend React real, não simulado
 railway.toml                # configuração do serviço Railway (aponta para api/Dockerfile)
 .github/workflows/ci.yml    # CI: lint+test da API e lint+build do frontend a cada push/PR (sem segredos reais)
 .env.example                 # referência consolidada de todas as variáveis de ambiente (api/.env.example + web/.env.example)
 ```
 
-As migrations da Fase 1 (prefixo `20260824...`), Fase 1.1 (`20260825...`), Fase 1.2 (`20260826...`), Fase 2 (`20260827...`), Fase 2.1 (`20260828...`), Fase 2.2 (`20260829...`) e Fase 2.2.1 (`20260830...`) **não foram alteradas** — a Fase 2.2.1 Parte 2 (deploy) é só migrations novas (prefixo `20260831...`) por cima: a superfície de API que faltava para o frontend (cidades, PONs a partir de clientes, salvar simulação/proposta, listar auditoria, registrar login), o `calculatePricing()` centralizado (`app.simular_precificacao_completa` / `public.pricing_calculate_full`), a curva de crescimento e a tabela de horizontes (12/36/48/60 meses), e uma correção real de `GRANT` em 6 views que nunca tinham sido testadas como o papel `authenticated` real (ver seção de testes abaixo). Nenhuma tabela existente foi recriada, nenhuma migration anterior foi tocada — só `CREATE OR REPLACE FUNCTION`/`GRANT`/`ALTER TABLE ... ADD CONSTRAINT` aditivos.
+As migrations da Fase 1 (prefixo `20260824...`), Fase 1.1 (`20260825...`), Fase 1.2 (`20260826...`), Fase 2 (`20260827...`), Fase 2.1 (`20260828...`), Fase 2.2 (`20260829...`) e Fase 2.2.1 (`20260830...`) **não foram alteradas** — a Fase 2.2.1 Parte 2 (deploy) é só migrations novas (prefixo `20260831...`) por cima: a superfície de API que faltava para o frontend (cidades, PONs a partir de clientes, salvar simulação/proposta, listar auditoria, registrar login), o `calculatePricing()` centralizado (`app.simular_precificacao_completa` / `public.pricing_calculate_full`), a curva de crescimento e a tabela de horizontes (12/36/48/60 meses), e uma correção real de `GRANT` em 6 views que nunca tinham sido testadas como o papel `authenticated` real (ver seção de testes abaixo). Nenhuma tabela existente foi recriada, nenhuma migration anterior foi tocada — só `CREATE OR REPLACE FUNCTION`/`GRANT`/`ALTER TABLE ... ADD CONSTRAINT` aditivos. A Fase 2.3 segue a mesma disciplina: 4 migrations novas (prefixo `20260901...`) — `status` em `cidades_infra` + wrappers de criar/editar/arquivar cidade, os triggers de auditoria que faltavam em `infra_segmentos`/`infra_cabos`/`infra_postes` + o wrapper transacional de criar cabo com as fibras já geradas juntas, `pricing_cities_list()`/`pricing_city_detail()` enriquecidas (precisaram de `DROP FUNCTION` antes do `CREATE OR REPLACE` porque mudam o tipo de retorno) e a nova `pricing_city_infra_tree()` — nenhuma tabela recriada, nenhuma migration de fase anterior tocada.
 
 ## Como aplicar num projeto Supabase real
 
@@ -127,17 +134,70 @@ Duas correções reais encontradas durante a própria validação, ambas disclos
 
 O que **não** foi testado por não existir ainda: HubSoft, IBGE, integração financeira, jobs de produção (os mesmos itens fora de escopo desde a Fase 2) — e o **deploy real em si** (Railway/Vercel/Supabase de produção), que depende de credenciais que só o usuário pode fornecer (ver seção "Deploy real" abaixo). A build da imagem Docker (`api/Dockerfile`) não pôde ser testada localmente porque este ambiente de desenvolvimento não tem um daemon Docker privilegiado disponível — ficará validada na primeira build real do Railway.
 
+### Fase 2.3 (Módulo de Gestão de Cidades e Infraestrutura) — bateria de testes rodada nesta entrega
+
+**54 de 54 verificações passando** (script `tests/run_tests_fase23.sh`, mesma disciplina de nunca esconder regressão: **PASSO-0** reexecuta `tests/run_tests_deploy.sh` **original, sem editar** — que por sua vez reexecuta toda a cadeia Fase 1→1.1→1.2→2→2.1→2.2→2.2.1 — e só depois aplica as 4 migrations novas desta fase; a cadeia inteira soma **196 verificações, 0 quebrado**, antes mesmo de chegar nos testes próprios da Fase 2.3): SEC3/SEC5 confirmam que nenhuma referência a "jussara" (case-insensitive) sobrou em `web/src` e que a rota fixa `/cidades/jussara` foi removida; TESTE-C1..C9 (seção 26) criam uma cidade nova do zero (TESTE) inteiramente por API — 2 POPs (nunca assume 1 cidade = 1 POP), 1 segmento, 1 cabo de 24 FO com as 24 fibras geradas automaticamente junto, postes, 1 porta PON com a capacidade padrão de 128 aplicada pelo trigger (parametrizada, não hard-coded), e o Pricing Engine calculando de verdade para essa cidade recém-criada; TESTE-A1..A3 (seção 27) criam uma segunda cidade (Andirá) e confirmam que Jussara não muda; TESTE-E1..E3 + TESTE-I1/I2 (seções 28-29) editam Andirá (10km→12km) e confirmam isolamento total de Jussara — inclusive postes/FO/FO-ociosas comparados contra um baseline capturado dinamicamente no início do script, não um número fixo, porque cada fase anterior já deixou fixtures próprios sobre a mesma Jussara; TESTE-P1..P9 (seção 30) confirmam RBAC por rota nos 4 perfis (COMERCIAL só lê, ENGENHARIA/ADMINISTRADOR criam e editam, AUDITOR só lê, e RLS bloqueia até criação de POP por COMERCIAL); AUD-1..AUD-16 (seção 38) confirmam que a auditoria — usuário/data/hora/ação/dados anteriores/dados novos — cobre criação **e** alteração de cidade, POP, cabo, fibra, poste e porta PON: 6 INSERTs conferidos, 4 UPDATEs via API real (cidade/POP/fibra/PON) e 2 UPDATEs via SQL direto (cabo/poste, que não têm endpoint de edição na especificação — seções 15/18 só pedem cadastro — provando que o gatilho genérico `fn_auditoria()` cobre a tabela de qualquer forma que ela venha a ser alterada, não só pelas rotas que existem hoje); TESTE-AR1..AR5 (seções 31-32) confirmam arquivamento sem contrato ativo (sem `DELETE` físico — `removido_em` setado) e o bloqueio exato de arquivar Jussara (contrato `ATIVO`), com a mensagem literal do prompt. O E2E obrigatório da seção 40 (`tests/e2e_fase23.js`, Playwright real contra o frontend, não simulado) roda à parte: **11 de 11 PASS** — login → Cidades → Nova Cidade (Andirá) → salvar → criar POP → criar segmento+cabo → voltar ao detalhe da cidade (Régua de Preço genérica) → Nova Simulação → selecionar Andirá → simular → Dashboard confirmando as duas cidades lado a lado, sem tratamento especial para nenhuma.
+
+Duas correções reais encontradas durante a própria validação, ambas disclosed: (1) `pricing_cities_list()`/`pricing_city_detail()` precisaram de `DROP FUNCTION IF EXISTS` antes do `CREATE OR REPLACE`, porque adicionar colunas ao retorno de uma função `returns table(...)` muda o tipo composto implícito e o Postgres recusa a substituição direta (`ERROR: cannot change return type of existing function`); (2) o E2E-9 (Nova Simulação calcula Pricing para a cidade nova) falhava de forma intermitente com um `waitForTimeout(2000)` fixo — não porque o cálculo estivesse errado (as 3 chamadas concorrentes de `runSimulation()` — `calculate`/`growth-curve`/`horizon-table` — sempre voltavam 200 — mas porque a régua de preço só renderiza depois que as 3 resolvem, e 2 segundos é uma corrida contra Chromium headless "frio"), corrigido trocando o sleep fixo por `page.waitForSelector('.regua', ...)`, que espera o elemento de verdade em vez de um tempo arbitrário. Nenhuma das duas exigiu recriar tabela, apagar migration ou mudar arquitetura. Detalhe teste a teste no `docs/RELATORIO_FASE23.md` que acompanha esta entrega.
+
+O que **não** foi testado por não existir ainda: os mesmos itens fora de escopo das fases anteriores (HubSoft, IBGE, integração financeira, jobs de produção) — e a aplicação das 4 migrations desta fase + a publicação do código novo no ambiente de produção real (Railway/Vercel/Supabase já existentes desde a Fase 2.2.1 Parte 2, mas ainda não atualizados com o código desta fase — ver "Deploy real" abaixo, único item do checklist de aceite ainda pendente).
+
 ## Deploy real (GitHub + Supabase + Railway + Vercel)
 
-Esta entrega **prepara** os 4 ambientes — não inclui nenhuma credencial real em nenhum arquivo versionado. Um repositório GitHub e um projeto Supabase já existem (criados pelo usuário); o push e a aplicação das migrations em produção, porém, exigem colar senha/token/chave de API em algum lugar para autenticar — e isso é uma linha que este assistente não atravessa mesmo com autorização explícita do usuário, então os 4 passos abaixo devem ser executados **pelo usuário**, no próprio terminal ou nos painéis Railway/Vercel/Supabase/GitHub. Tudo que não depende de segredo (código, migrations, Dockerfile, configs) já está pronto neste repositório.
+Os 4 ambientes **já existem e já estão publicados de verdade** desde a Fase 2.2.1 Parte 2 — GitHub (`spotnick/optimon-backend`), Supabase (projeto `zmhektrjgrjvcsysrbmw`), Railway (API) e Vercel (frontend). O que a Fase 2.3 acrescenta (4 migrations SQL + as rotas/telas novas de Cidades & Infraestrutura) **ainda não foi enviado para esses ambientes** — nenhuma credencial foi manuseada nesta sessão para fazer isso (fora do escopo permitido: nunca inserir senha/token/chave em nenhuma chamada de ferramenta em nome do usuário, mesmo com autorização explícita), então os passos abaixo devem ser executados **pelo usuário**, no próprio terminal ou nos painéis Railway/Vercel/Supabase/GitHub. Tudo que não depende de segredo (código, migrations, Dockerfile, configs) já está pronto neste repositório.
 
 - **GitHub**: `.gitignore` cobre todo segredo conhecido (`.env`, `service_role`, `DATABASE_URL`, tokens); `.github/workflows/ci.yml` roda lint+teste da API e lint+build do frontend a cada push/PR, só com variáveis fictícias (nunca um segredo real em CI).
-- **Supabase**: projeto já existe. Aplicar as 74 migrations em `supabase/migrations/` em ordem (nunca `dev-local-only/`, que é só simulação para ambiente sem Supabase) — nunca recriar o banco, nunca apagar migration existente.
-- **Railway** (API): `api/Dockerfile` (multi-stage, `node:22-alpine`, `npm ci --omit=dev`, `HEALTHCHECK`) + `railway.toml` na raiz apontando para ele. Variáveis a configurar no painel: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `CORS_ALLOWED_ORIGINS` (a URL do Vercel), `APP_ENVIRONMENT=production`. **Nunca** `SUPABASE_SERVICE_ROLE_KEY` — a API não usa e não deve usar.
-- **Vercel** (frontend): `web/vercel.json` (SPA — todas as rotas caem em `index.html`; headers de segurança `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`; cache longo para `/assets`). Variáveis a configurar no painel: `VITE_API_URL` (a URL do Railway), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (a anon key é segura para expor no bundle público — nunca a service_role), `VITE_APP_ENVIRONMENT`.
-- **Pricing Engine centralizado**: o frontend nunca calcula preço — toda tela que mostra um valor chama `POST /api/pricing/calculate` (`api/lib/calculatePricing.js` → `public.pricing_calculate_full` → `app.simular_precificacao_completa`), que sempre recalcula no servidor a partir dos parâmetros vigentes, nunca confiando em um total vindo do cliente.
+- **Supabase**: projeto já existe, com as 74 migrations das Fases 1..2.2.1(P2) já aplicadas. Faltam só as 4 novas desta fase (`supabase/migrations/20260901*.sql`) — aplicar em ordem, nunca `dev-local-only/` (só simulação para ambiente sem Supabase) — nunca recriar o banco, nunca apagar migration existente.
+- **Railway** (API): já publicado. `api/routes/infra.js` é arquivo novo e `api/routes/cities.js`/`api/server.js` foram alterados nesta fase — um novo push para `main` (se o serviço Railway estiver conectado ao GitHub) já dispara o redeploy automaticamente; senão, use "Redeploy" no painel depois do push.
+- **Vercel** (frontend): já publicado. `web/src/pages/Cities.jsx`, `NewCity.jsx` e `EditCity.jsx` são novos, e várias telas existentes foram alteradas para remover a lógica fixa de Jussara — mesmo esquema: push para `main` dispara redeploy automático se o projeto Vercel estiver conectado ao GitHub, senão "Redeploy" manual no painel.
+- **Pricing Engine centralizado**: continua sem mudar nesta fase — o frontend nunca calcula preço, toda tela que mostra um valor chama `POST /api/pricing/calculate` (`api/lib/calculatePricing.js` → `public.pricing_calculate_full` → `app.simular_precificacao_completa`), que sempre recalcula no servidor a partir dos parâmetros vigentes e da cidade selecionada, nunca confiando em um total vindo do cliente.
 
-### Passo a passo para você executar
+### Passo a passo da Fase 2.3 (incremental — os 4 ambientes já existem)
+
+**1. GitHub — enviar o código novo**
+
+```bash
+git push origin main
+```
+
+(o `git remote add origin ...` e o primeiro `git push -u` já foram feitos em entregas anteriores — se este for um clone novo do zip, ver o passo a passo completo mais abaixo, na primeira entrega desta seção do histórico do repositório.)
+
+**2. Supabase — aplicar só as 4 migrations novas**
+
+Mesmo runbook de sempre (ver a seção "Como aplicar num projeto Supabase real" acima para os detalhes de `$env:PGCLIENTENCODING` no Windows), mas agora só precisa rodar os 4 arquivos novos — os 74 anteriores já estão aplicados:
+
+```bash
+export DATABASE_URL="postgresql://postgres:<SENHA_REAL>@db.<seu-projeto>.supabase.co:5432/postgres"
+for f in supabase/migrations/20260901*.sql; do
+  echo "Aplicando $f..."
+  psql "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
+done
+```
+
+PowerShell (lembrando de `$env:PGCLIENTENCODING = "UTF8"` antes, pelo mesmo motivo já documentado acima):
+
+```powershell
+$env:PGCLIENTENCODING = "UTF8"
+$env:DATABASE_URL = "postgresql://postgres:<SENHA_REAL>@db.<seu-projeto>.supabase.co:5432/postgres"
+Get-ChildItem "supabase\migrations\20260901*.sql" | Sort-Object Name | ForEach-Object {
+  Write-Host "Aplicando $($_.Name)..."
+  psql $env:DATABASE_URL -f $_.FullName
+}
+```
+
+Depois de aplicar, use "Reload schema cache" em Project Settings → API no painel do Supabase se as rotas novas (`pricing_city_infra_tree`, etc.) não aparecerem imediatamente.
+
+**3. Railway e Vercel — redeploy**
+
+Se os dois serviços já estão conectados ao repositório GitHub (o normal depois da configuração inicial), o `git push` do passo 1 já dispara o build e o redeploy de ambos automaticamente — só acompanhar os logs no painel de cada um. Senão, usar o botão "Redeploy" manual em cada painel.
+
+**4. Validar em produção**
+
+Depois dos 3 passos: abrir o frontend publicado, entrar com um usuário `ENGENHARIA` ou `ADMINISTRADOR`, ir em "Cidades & Infraestrutura", confirmar que Jussara aparece na lista (sem tratamento especial), criar uma cidade de teste pelo formulário, cadastrar um POP e um cabo, e conferir que a Régua de Preço calcula para essa cidade nova — o mesmo roteiro do `tests/e2e_fase23.js`, só que contra o ambiente real. Me avise (ou cole qualquer erro) que eu ajudo a depurar sem precisar ver nenhuma credencial, só as URLs e mensagens de erro.
+
+### Passo a passo original (onboarding do zero — já executado; mantido de referência)
+
+Os 4 passos abaixo descrevem o onboarding completo desde o primeiro deploy (Fase 2.2.1 Parte 2) — já foi executado e os 4 ambientes já estão no ar. Fica aqui só como referência caso você precise recriar algum ambiente do zero (ex.: um novo projeto Supabase de staging); para o dia a dia (como aplicar as migrations novas de uma fase), use o passo a passo incremental acima.
 
 **1. GitHub — enviar o código**
 
@@ -220,8 +280,8 @@ Também mais simples pelo painel: Add New → Project → importe `spotnick/opti
 
 Depois dos 4 passos, me avise (ou cole o resultado de qualquer erro) que eu confiro os endpoints públicos e ajudo a depurar — sem precisar ver nenhuma credencial, só as URLs e mensagens de erro.
 
-O que falta para o deploy acontecer de fato: um repositório GitHub real (com o código enviado), um projeto Supabase real (criado pelo usuário — a criação de contas está fora do que esta sessão pode fazer), e os tokens do Railway/Vercel/GitHub para autenticar o deploy. Nenhum desses 4 itens está disponível nesta entrega; assim que estiverem, o deploy pode ser feito diretamente a partir do que já está pronto aqui, sem nenhuma mudança de arquitetura.
+Esse onboarding completo já foi concluído em uma entrega anterior — os 4 ambientes estão criados e no ar (ver `docs/RELATORIO_FASE221_PARTE2.md`, addendum). O que falta **hoje** é só o incremento da Fase 2.3 (4 migrations + código novo) chegar até eles — ver "Passo a passo da Fase 2.3 (incremental)" no início desta seção.
 
 ## Próximos passos (Fase 3 em diante)
 
-Ver `docs/ARQUITETURA.md`, seção 12 (roteiro completo), seção 15 (Fase 2), seção 16 (Fase 2.1), seção 17 (Fase 2.2 — Infrastructure Floor), seção 18 (Fase 2.2.1 — governança por papel + Porta PON como componente do Floor) e seção 19 (Fase 2.2.1 Parte 2 — deploy, Pricing Engine centralizado, frontend React). Por instrução explícita do Prompt Mestre, a Fase 3 **não foi iniciada automaticamente** — a próxima etapa será definida pelo usuário, e o deploy real (Railway/Vercel/Supabase de produção) segue bloqueado até o usuário fornecer as credenciais necessárias (ver "Deploy real" acima).
+Ver `docs/ARQUITETURA.md`, seção 12 (roteiro completo), seção 15 (Fase 2), seção 16 (Fase 2.1), seção 17 (Fase 2.2 — Infrastructure Floor), seção 18 (Fase 2.2.1 — governança por papel + Porta PON como componente do Floor), seção 19 (Fase 2.2.1 Parte 2 — deploy, Pricing Engine centralizado, frontend React) e seção 20 (Fase 2.3 — Cidades & Infraestrutura multi-cidade). Por instrução explícita do Prompt Mestre (seção 41/42 da Fase 2.3), a próxima fase **não foi iniciada automaticamente** — a próxima etapa será definida pelo usuário, e por enquanto falta só um item do checklist de aceite da Fase 2.3: aplicar as 4 migrations novas e publicar o código desta fase nos ambientes reais já existentes (ver "Deploy real" acima) — nenhuma credencial foi manuseada por esta sessão para isso, como de costume.
