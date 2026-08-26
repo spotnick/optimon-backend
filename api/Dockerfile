@@ -5,12 +5,12 @@
 # dockerfilePath="api/Dockerfile" sem mudar o Root Directory do serviço no Railway) — por
 # isso todo COPY abaixo usa o prefixo "api/", não caminhos relativos a este arquivo.
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY api/package.json api/package-lock.json* ./
 RUN npm ci --omit=dev
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules

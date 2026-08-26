@@ -94,15 +94,18 @@ Verificado visualmente via Playwright headless (Chrome extension não disponíve
 
 ## 13. Preparação Railway (API)
 
-`api/Dockerfile` (multi-stage `node:20-alpine`, `COPY api/... `a partir da raiz do monorepo, `npm ci --omit=dev`, `HEALTHCHECK` batendo em `/health`) + `railway.toml` na raiz (`builder=DOCKERFILE`, `dockerfilePath=api/Dockerfile`, `healthcheckPath=/health`, `restartPolicy=ON_FAILURE`). Variáveis a configurar no painel: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `CORS_ALLOWED_ORIGINS`, `APP_ENVIRONMENT=production`. **Nunca** `SUPABASE_SERVICE_ROLE_KEY`.
+`api/Dockerfile` (multi-stage `node:22-alpine`, `COPY api/... `a partir da raiz do monorepo, `npm ci --omit=dev`, `HEALTHCHECK` batendo em `/health`) + `railway.toml` na raiz (`builder=DOCKERFILE`, `dockerfilePath=api/Dockerfile`, `healthcheckPath=/health`, `restartPolicy=ON_FAILURE`). Variáveis a configurar no painel: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `CORS_ALLOWED_ORIGINS`, `APP_ENVIRONMENT=production`. **Nunca** `SUPABASE_SERVICE_ROLE_KEY`. (`node:22-alpine` — ver item 15: a versão original `node:20-alpine` só se mostrou um problema no deploy real.)
 
 ## 14. Preparação Vercel (frontend)
 
 `web/vercel.json`: `buildCommand`/`outputDirectory` para Vite, rewrite de SPA (`/(.*)`→`/index.html`), headers de segurança (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`) e cache longo para `/assets`. Variáveis: `VITE_API_URL` (URL do Railway), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (anon key é segura para expor no bundle público), `VITE_APP_ENVIRONMENT`. O frontend nunca acessa o banco diretamente para lógica de negócio — só `auth.signInWithPassword`/`signOut` usam `supabase-js`; todo o resto passa pela API.
 
-## 15. Limitação de ambiente disclosed: build da imagem Docker não testável localmente
+## 15. Limitação de ambiente disclosed: build da imagem Docker não testável localmente — confirmada na prática, 2 bugs reais encontrados e corrigidos
 
-`docker build`/`dockerd` não estão disponíveis neste sandbox (`ulimit: error setting limit (Operation not permitted)` — sem daemon Docker privilegiado). O `Dockerfile` foi revisado linha a linha e segue o padrão testado em outros projetos Node, mas **não pôde ser efetivamente construído nem executado localmente** nesta entrega. Fica como a única verificação pendente da Fase 2.2.1 Parte 2 que só pode ser concluída na primeira build real do Railway.
+`docker build`/`dockerd` não estavam disponíveis neste sandbox (`ulimit: error setting limit (Operation not permitted)` — sem daemon Docker privilegiado), então o `Dockerfile` não pôde ser construído nem executado localmente durante a entrega original — ficou marcado como a única verificação pendente. O primeiro deploy real no Railway confirmou que essa limitação era real: apareceram 2 bugs que nenhuma bateria local (mesmo com PostgREST + JWT reais) pegaria, porque dependiam especificamente do ambiente de produção. Ambos encontrados e corrigidos em conjunto com o usuário, lendo os logs reais do Railway — detalhe completo na seção 19.9 de `docs/ARQUITETURA.md`:
+
+1. **Rota async lançando erro síncrono travava a resposta em `502`** — nenhum handler tinha `try/catch` em torno de `clientForRequest()`, e o Express 4 não encaminha uma rejeição de handler `async` para o middleware de erro sozinho; a requisição nunca recebia resposta e o Railway derrubava a conexão por timeout, sem log útil no navegador. Corrigido com `require('express-async-errors')` uma vez em `server.js` — cobre todas as rotas de uma vez. Confirmado localmente (forçando `SUPABASE_URL=""`: travava antes, responde `500` limpo depois) e reexecutada a bateria completa — 18/18 PASS, sem regressão.
+2. **`@supabase/supabase-js` exige WebSocket nativo (Node 22+) para sequer inicializar o cliente**, mesmo sem usar Realtime — `api/Dockerfile` usava `node:20-alpine`; o `SupabaseClient` sempre inicializa um `RealtimeClient` internamente, e essa inicialização falha em Node <22 por falta de `WebSocket` nativo. Nenhum teste local pegou isso porque o ambiente de desenvolvimento desta sessão já roda Node 22. Corrigido trocando as 2 stages do Dockerfile para `node:22-alpine` — sem mudança de código-fonte.
 
 ## 16. Estado do deploy real — o que falta (BLOCKED, aguardando o usuário)
 
