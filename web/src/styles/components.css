@@ -222,6 +222,77 @@
   cursor: not-allowed;
 }
 
+/* Fase 2.3.1 — botão de arquivamento: precisa parecer uma ação destrutiva (seção 18),
+   mesmo sendo sempre uma exclusão lógica (nunca DELETE físico) por trás. */
+.btn-danger {
+  background: var(--status-block-bg);
+  border-color: transparent;
+  color: var(--status-block);
+}
+
+.btn-danger:hover {
+  filter: brightness(0.95);
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge.status-archived {
+  background: var(--gray-100, #eef1f5);
+  color: var(--text-muted);
+}
+
+/* Fase 2.3.1 — modal de confirmação de arquivamento/restauração (seção 19): nunca
+   arquiva no clique direto, sempre passa por aqui. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.modal-dialog .modal-subject {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin-bottom: 16px;
+}
+
+.modal-dialog .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;

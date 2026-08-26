@@ -46,25 +46,48 @@ export const api = {
   version: () => request('/api/version'),
 
   cities: {
-    list: () => request('/api/cities'),
+    list: (filtro) => request(`/api/cities${filtro ? `?filtro=${filtro}` : ''}`),
     detail: (id) => request(`/api/cities/${id}`),
     create: (body) => request('/api/cities', { method: 'POST', body }),
     update: (id, body) => request(`/api/cities/${id}`, { method: 'PATCH', body }),
-    archive: (id) => request(`/api/cities/${id}/archive`, { method: 'POST' }),
+    archive: (id, body) => request(`/api/cities/${id}/archive`, { method: 'POST', body }),
+    restore: (id, body) => request(`/api/cities/${id}/restore`, { method: 'POST', body }),
   },
 
   infra: {
-    tree: (cidadeId) => request(`/api/infra/tree?cidade_id=${cidadeId}`),
+    // incluirArquivados=true traz também POP/segmento/cabo/poste arquivados e Porta PON
+    // INATIVA — usado pela tela "Editar Infraestrutura" (filtro ATIVOS/ARQUIVADOS/TODOS
+    // é aplicado no cliente sobre essa árvore completa, seção 20).
+    tree: (cidadeId, incluirArquivados) =>
+      request(`/api/infra/tree?cidade_id=${cidadeId}${incluirArquivados ? '&incluir_arquivados=true' : ''}`),
+
     createPop: (body) => request('/api/infra/pops', { method: 'POST', body }),
     updatePop: (id, body) => request(`/api/infra/pops/${id}`, { method: 'PATCH', body }),
+    archivePop: (id, body) => request(`/api/infra/pops/${id}/archive`, { method: 'POST', body }),
+    restorePop: (id, body) => request(`/api/infra/pops/${id}/restore`, { method: 'POST', body }),
+
     listSegments: (cidadeId) => request(`/api/infra/segments?cidade_id=${cidadeId}`),
     createSegment: (body) => request('/api/infra/segments', { method: 'POST', body }),
+    updateSegment: (id, body) => request(`/api/infra/segments/${id}`, { method: 'PATCH', body }),
+    archiveSegment: (id, body) => request(`/api/infra/segments/${id}/archive`, { method: 'POST', body }),
+    restoreSegment: (id, body) => request(`/api/infra/segments/${id}/restore`, { method: 'POST', body }),
+
     createCable: (body) => request('/api/infra/cables', { method: 'POST', body }),
+    updateCable: (id, body) => request(`/api/infra/cables/${id}`, { method: 'PATCH', body }),
+    archiveCable: (id, body) => request(`/api/infra/cables/${id}/archive`, { method: 'POST', body }),
+    restoreCable: (id, body) => request(`/api/infra/cables/${id}/restore`, { method: 'POST', body }),
     cableFibers: (cableId) => request(`/api/infra/cables/${cableId}/fibers`),
     updateFiber: (id, body) => request(`/api/infra/fibers/${id}`, { method: 'PATCH', body }),
+
     createPole: (body) => request('/api/infra/poles', { method: 'POST', body }),
+    updatePole: (id, body) => request(`/api/infra/poles/${id}`, { method: 'PATCH', body }),
+    archivePole: (id, body) => request(`/api/infra/poles/${id}/archive`, { method: 'POST', body }),
+    restorePole: (id, body) => request(`/api/infra/poles/${id}/restore`, { method: 'POST', body }),
+
     createPonPort: (body) => request('/api/infra/pon-ports', { method: 'POST', body }),
     updatePonPort: (id, body) => request(`/api/infra/pon-ports/${id}`, { method: 'PATCH', body }),
+    archivePonPort: (id, body) => request(`/api/infra/pon-ports/${id}/archive`, { method: 'POST', body }),
+    restorePonPort: (id, body) => request(`/api/infra/pon-ports/${id}/restore`, { method: 'POST', body }),
   },
 
   pricing: {

@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import ArchiveModal from '../components/ArchiveModal';
 
 const STATUS_LABEL = { ATIVA: 'Ativa', INATIVA: 'Inativa', PLANEJADA: 'Planejada' };
 const CAN_CREATE = ['ENGENHARIA', 'ADMINISTRADOR'];
+const CAN_ARCHIVE = ['ENGENHARIA', 'ADMINISTRADOR'];
+const CAN_RESTORE = ['ADMINISTRADOR', 'DIRETOR'];
+const FILTROS = [
+  { value: 'ATIVOS', label: 'Ativas' },
+  { value: 'ARQUIVADOS', label: 'Arquivadas' },
+  { value: 'TODOS', label: 'Todas' },
+];
 
 export default function Cities() {
   const { role } = useAuth();
@@ -13,10 +21,25 @@ export default function Cities() {
   const [q, setQ] = useState('');
   const [uf, setUf] = useState('');
   const [status, setStatus] = useState('');
+  const [filtro, setFiltro] = useState('ATIVOS');
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [actionError, setActionError] = useState(null);
 
-  useEffect(() => {
-    api.cities.list().then(setCities).catch((err) => setError(err.message));
-  }, []);
+  const reload = useCallback(() => {
+    api.cities.list(filtro).then(setCities).catch((err) => setError(err.message));
+  }, [filtro]);
+
+  useEffect(() => { setCities(null); reload(); }, [reload]);
+
+  async function handleRestore(city) {
+    setActionError(null);
+    try {
+      await api.cities.restore(city.cidade_id, {});
+      reload();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao restaurar.');
+    }
+  }
 
   const ufs = useMemo(() => [...new Set((cities || []).map((c) => c.uf))].sort(), [cities]);
 
@@ -73,7 +96,16 @@ export default function Cities() {
             </select>
           </div>
         </div>
+        <div className="chip-row" style={{ marginTop: 16 }}>
+          {FILTROS.map((f) => (
+            <button key={f.value} type="button" className={`chip ${filtro === f.value ? 'active' : ''}`} onClick={() => setFiltro(f.value)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {actionError && <div className="error-banner">{actionError}</div>}
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
@@ -110,14 +142,35 @@ export default function Cities() {
                   <td className="num">{Number(c.clientes_ativos).toLocaleString('pt-BR')}</td>
                   <td className="num">{(Number(c.taxa_ocupacao || 0) * 100).toFixed(1)}%</td>
                   <td>
-                    <span className={`badge status-${c.status === 'ATIVA' ? 'allow' : c.status === 'PLANEJADA' ? 'discount' : 'block'}`}>
-                      {STATUS_LABEL[c.status] || c.status}
-                    </span>
+                    {c.arquivada ? (
+                      <span className="badge status-archived">Arquivada</span>
+                    ) : (
+                      <span className={`badge status-${c.status === 'ATIVA' ? 'allow' : c.status === 'PLANEJADA' ? 'discount' : 'block'}`}>
+                        {STATUS_LABEL[c.status] || c.status}
+                      </span>
+                    )}
                   </td>
                   <td>
-                    <Link to={`/cidades/${c.cidade_id}`} className="link-tab" style={{ fontSize: '0.82rem' }}>
-                      Ver detalhe →
-                    </Link>
+                    <div className="row-actions">
+                      <Link to={`/cidades/${c.cidade_id}`} className="link-tab" style={{ fontSize: '0.82rem' }}>
+                        Visualizar
+                      </Link>
+                      {!c.arquivada && CAN_ARCHIVE.includes(role) && (
+                        <Link to={`/cidades/${c.cidade_id}/editar`} className="link-tab" style={{ fontSize: '0.82rem' }}>
+                          Editar
+                        </Link>
+                      )}
+                      {!c.arquivada && CAN_ARCHIVE.includes(role) && (
+                        <button type="button" className="btn btn-danger btn-sm" onClick={() => setArchiveTarget(c)}>
+                          Arquivar
+                        </button>
+                      )}
+                      {c.arquivada && CAN_RESTORE.includes(role) && (
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRestore(c)}>
+                          Restaurar
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -128,6 +181,20 @@ export default function Cities() {
           </table>
         </div>
       </div>
+
+      {archiveTarget && (
+        <ArchiveModal
+          title="Arquivar cidade?"
+          subject={`${archiveTarget.nome} — ${archiveTarget.uf}. A cidade sai das listas ativas, do Dashboard e do Pricing Engine, mas todo o histórico é preservado. Se houver contrato, proposta, parceiro ou PON em operação vinculados, o arquivamento será bloqueado.`}
+          mode="archive"
+          onCancel={() => setArchiveTarget(null)}
+          onConfirm={async (body) => {
+            await api.cities.archive(archiveTarget.cidade_id, body);
+            setArchiveTarget(null);
+            reload();
+          }}
+        />
+      )}
     </div>
   );
 }
