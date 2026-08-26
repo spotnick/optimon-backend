@@ -225,6 +225,50 @@ Se os dois serviços já estão conectados ao repositório GitHub (o normal depo
 
 Depois dos 3 passos: abrir o frontend publicado, entrar com um usuário `ENGENHARIA` ou `ADMINISTRADOR`, ir em "Cidades & Infraestrutura", confirmar que Jussara aparece na lista (sem tratamento especial), criar uma cidade de teste pelo formulário, cadastrar um POP e um cabo, e conferir que a Régua de Preço calcula para essa cidade nova — o mesmo roteiro do `tests/e2e_fase23.js`, só que contra o ambiente real. Me avise (ou cole qualquer erro) que eu ajudo a depurar sem precisar ver nenhuma credencial, só as URLs e mensagens de erro.
 
+### Passo a passo da Fase 2.3.1 (incremental — só faltam as 4 migrations novas no Supabase real)
+
+O código desta fase (`git push origin main`) já foi enviado ao GitHub — se você já rodou isso, pule para o passo 2. Se Railway/Vercel estão conectados ao repositório (o normal), esse push já disparou o build e redeploy dos dois automaticamente; só falta o banco.
+
+**1. Supabase — aplicar as 4 migrations novas (prefixo `20260902`)**
+
+Mesmo runbook de sempre — só troca o filtro de arquivo:
+
+```bash
+export DATABASE_URL="postgresql://postgres:<SENHA_REAL>@db.<seu-projeto>.supabase.co:5432/postgres"
+for f in supabase/migrations/20260902*.sql; do
+  echo "Aplicando $f..."
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f" || { echo "FALHOU em $f"; break; }
+done
+```
+
+PowerShell (com `$env:PGCLIENTENCODING = "UTF8"` antes, pelo mesmo motivo já documentado acima):
+
+```powershell
+$env:PGCLIENTENCODING = "UTF8"
+$env:DATABASE_URL = "postgresql://postgres:<SENHA_REAL>@db.<seu-projeto>.supabase.co:5432/postgres"
+Get-ChildItem "supabase\migrations\20260902*.sql" | Sort-Object Name | ForEach-Object {
+  Write-Host "Aplicando $($_.Name)..."
+  psql -v ON_ERROR_STOP=1 $env:DATABASE_URL -f $_.FullName
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "FALHOU em $($_.Name)"
+  }
+}
+```
+
+As 4 migrations são seguras para reaplicar do zero se pararem no meio — todas usam `create or replace function`, `drop function if exists` antes de mudar assinatura, e `add column if not exists`.
+
+**2. Erro `Could not find the function ... in the schema cache`** — é exatamente o sintoma de rodar o app contra um banco que ainda não tem as migrations desta fase (`pricing_city_infra_tree(p_cidade_id, p_incluir_arquivados)` e `pricing_city_archive(p_cidade_id, p_motivo, p_observacao)` só existem a partir daqui). Depois de aplicar o passo 1, confirme no SQL Editor do painel do Supabase:
+
+```sql
+select proname, pg_get_function_identity_arguments(oid)
+from pg_proc
+where proname in ('pricing_city_archive', 'pricing_city_restore', 'pricing_city_infra_tree', 'pricing_pop_archive', 'pricing_pop_restore');
+```
+
+Se vier menos de 5 linhas, pelo menos uma migration não terminou — reaplique-a (ou cole o conteúdo do `.sql` direto no SQL Editor). Depois, use "Reload schema cache" em Project Settings → API no painel do Supabase — o PostgREST do Supabase normalmente recarrega sozinho ao detectar DDL novo, mas forçar o reload elimina a variável se o erro persistir.
+
+**3. Validar em produção** — mesmo roteiro do `tests/e2e_fase231.js`: entrar como ADMINISTRADOR, abrir uma cidade, editar, arquivar um item de teste (com o modal pedindo motivo), consultar o filtro "Arquivados", restaurar, e confirmar que ele volta a "Ativos". Cole qualquer erro aqui que eu ajudo a depurar sem precisar ver nenhuma credencial.
+
 ### Passo a passo original (onboarding do zero — já executado; mantido de referência)
 
 Os 4 passos abaixo descrevem o onboarding completo desde o primeiro deploy (Fase 2.2.1 Parte 2) — já foi executado e os 4 ambientes já estão no ar. Fica aqui só como referência caso você precise recriar algum ambiente do zero (ex.: um novo projeto Supabase de staging); para o dia a dia (como aplicar as migrations novas de uma fase), use o passo a passo incremental acima.
