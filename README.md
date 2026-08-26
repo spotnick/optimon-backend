@@ -140,7 +140,7 @@ Esta entrega **prepara** os 4 ambientes — não inclui nenhuma credencial real 
 **1. GitHub — enviar o código**
 
 ```bash
-git remote add origin https://github.com/helocodes/optimon.git
+git remote add origin https://github.com/spotnick/optimon-backend.git
 git push -u origin main
 ```
 
@@ -199,11 +199,11 @@ Os arquivos já estão nomeados com prefixo de data — a ordem alfabética (`So
 
 **3. Railway — publicar a API**
 
-Mais simples pelo painel: New Project → Deploy from GitHub repo → selecione `helocodes/optimon` → em Settings, confirme que o build usa `api/Dockerfile` (já configurado via `railway.toml`) → em Variables, adicione `SUPABASE_URL`, `SUPABASE_ANON_KEY` (a chave `anon`, nunca a `service_role`), `CORS_ALLOWED_ORIGINS` (preencha depois de ter a URL do Vercel) e `APP_ENVIRONMENT=production`. Depois do deploy, confirme `https://<seu-servico>.up.railway.app/health` → `{"status":"ok","service":"optimon-api"}`.
+Mais simples pelo painel: New Project → Deploy from GitHub repo → selecione `spotnick/optimon-backend` → em Settings, confirme que o build usa `api/Dockerfile` (já configurado via `railway.toml`) → em Variables, adicione `SUPABASE_URL`, `SUPABASE_ANON_KEY` (a chave `anon`, nunca a `service_role`), `CORS_ALLOWED_ORIGINS` (preencha depois de ter a URL do Vercel) e `APP_ENVIRONMENT=production`. Depois do deploy, confirme `https://<seu-servico>.up.railway.app/health` → `{"status":"ok","service":"optimon-api"}`.
 
 **4. Vercel — publicar o frontend**
 
-Também mais simples pelo painel: Add New → Project → importe `helocodes/optimon` → Root Directory: `web` → Framework Preset: Vite (o `vercel.json` já traz o resto). Em Environment Variables: `VITE_API_URL` (a URL do Railway do passo 3), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (a chave `anon`), `VITE_APP_ENVIRONMENT=PRODUÇÃO` (ou `DEMONSTRAÇÃO`). Depois de publicado, volte no Railway e preencha `CORS_ALLOWED_ORIGINS` com a URL do Vercel.
+Também mais simples pelo painel: Add New → Project → importe `spotnick/optimon-backend` → Root Directory: `web` → Framework Preset: Vite (o `vercel.json` já traz o resto). Em Environment Variables: `VITE_API_URL` (a URL do Railway do passo 3), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (a chave `anon`), `VITE_APP_ENVIRONMENT=PRODUÇÃO` (ou `DEMONSTRAÇÃO`). Depois de publicado, volte no Railway e preencha `CORS_ALLOWED_ORIGINS` com a URL do Vercel.
 
 Depois dos 4 passos, me avise (ou cole o resultado de qualquer erro) que eu confiro os endpoints públicos e ajudo a depurar — sem precisar ver nenhuma credencial, só as URLs e mensagens de erro.
 
