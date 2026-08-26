@@ -112,6 +112,21 @@ export const api = {
   proposals: {
     create: (body) => request('/api/proposals', { method: 'POST', body }),
     list: (params = {}) => request(`/api/proposals?${new URLSearchParams(params)}`),
+    get: (id) => request(`/api/proposals/${id}`),
+    getPublic: (id) => request(`/api/proposals/${id}/public`),
+    versions: (id) => request(`/api/proposals/${id}/versions`),
+    newVersion: (id, body = {}) => request(`/api/proposals/${id}/version`, { method: 'POST', body }),
+    duplicate: (id, body = {}) => request(`/api/proposals/${id}/duplicate`, { method: 'POST', body }),
+    approve: (id, body = {}) => request(`/api/proposals/${id}/approve`, { method: 'POST', body }),
+    reject: (id, body) => request(`/api/proposals/${id}/reject`, { method: 'POST', body }),
+    changeStatus: (id, body) => request(`/api/proposals/${id}/status`, { method: 'POST', body }),
+    // Export não passa por request() — é um download binário (PDF/DOCX) autenticado, não
+    // JSON; ver ProposalDetail.jsx (busca com fetch() + Blob, mesmo padrão de token).
+    exportPath: (id, formato, modo) => `/api/proposals/${id}/export?formato=${formato}${modo ? `&modo=${modo}` : ''}`,
+  },
+
+  partners: {
+    list: () => request('/api/partners'),
   },
 
   audit: {
@@ -120,4 +135,24 @@ export const api = {
   },
 };
 
-export { ApiError };
+// Download autenticado de binário (export PDF/DOCX de proposta — seção 8/9). Devolve
+// {blob, fileName} pronto pra disparar o download no navegador (ver ProposalDetail.jsx).
+async function apiDownload(path) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = `Erro ${res.status} ao baixar o arquivo.`;
+    try { message = (await res.json())?.error || message; } catch { /* corpo não-JSON */ }
+    throw new ApiError(message, res.status);
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const fileName = match ? match[1] : 'proposta.pdf';
+  const blob = await res.blob();
+  return { blob, fileName };
+}
+
+export { ApiError, apiDownload };

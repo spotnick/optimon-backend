@@ -6,6 +6,7 @@ import ReguaDePreco from '../components/ReguaDePreco';
 import GrowthRevenueChart from '../components/charts/GrowthRevenueChart';
 import ClientsPonsChart from '../components/charts/ClientsPonsChart';
 import { formatCurrencyFull } from '../components/charts/chartUtils';
+import HelpTooltip from '../components/HelpTooltip';
 
 const QUICK_CLIENTS = [10, 25, 50, 100, 128, 129, 200, 256, 384, 500, 1000];
 const COMPOSICAO_MODES = ['MAX', 'FLOOR_ONLY', 'MINIMUM_ONLY', 'FLOOR_AS_MINIMUM', 'SUM'];
@@ -38,6 +39,17 @@ export default function NewSimulation() {
   const [capex, setCapex] = useState(50000);
   const [opexMensal, setOpexMensal] = useState(0);
 
+  // Fase 2.4 (seção 6): dados de capa da proposta — parceiro cadastrado (opcional) ou
+  // nome livre, cargo do contato, validade e preço proposto (nunca recalculado no
+  // frontend — só ecoado de volta pro backend, que sempre recalcula floor/recommended).
+  const [partners, setPartners] = useState([]);
+  const [parceiroId, setParceiroId] = useState('');
+  const [parceiroNomeCapa, setParceiroNomeCapa] = useState('');
+  const [parceiroCargoContato, setParceiroCargoContato] = useState('');
+  const [validadeDias, setValidadeDias] = useState(15);
+  const [precoProposto, setPrecoProposto] = useState('');
+  const [precoPropostoTocado, setPrecoPropostoTocado] = useState(false);
+
   const [pricing, setPricing] = useState(null);
   const [curve, setCurve] = useState(null);
   const [horizonTable, setHorizonTable] = useState(null);
@@ -55,6 +67,7 @@ export default function NewSimulation() {
       if (list.length > 0) setCidadeId(list[0].cidade_id);
     }).catch((err) => setError(err.message));
     api.pricing.ramp().then(setRamp).catch(() => {});
+    api.partners.list().then(setPartners).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -77,6 +90,10 @@ export default function NewSimulation() {
         faturamento: faturamentoOverride !== '' ? Number(faturamentoOverride) : null,
         revenue_share_pct: Number(revenueSharePct),
         composicao_mode: composicaoMode,
+        // Fase 2.4 (seção 6/38): preço proposto — se o usuário ainda não digitou nada,
+        // o backend recomenda (recommended) e o campo é prefilled com esse valor assim
+        // que a resposta chega (ver efeito abaixo); nunca inventado no frontend.
+        preco_proposto: precoProposto !== '' ? Number(precoProposto) : null,
       };
       const [calc, curveData, horizon] = await Promise.all([
         api.pricing.calculate(baseParams),
@@ -86,12 +103,15 @@ export default function NewSimulation() {
       setPricing(calc);
       setCurve(curveData);
       setHorizonTable(horizon);
+      if (!precoPropostoTocado && calc?.recommended != null) {
+        setPrecoProposto(String(calc.recommended));
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao calcular. Tente novamente.');
     } finally {
       setLoading(false);
     }
-  }, [cidadeId, popId, clientes, arpu, faturamentoOverride, revenueSharePct, composicaoMode, capex, opexMensal]);
+  }, [cidadeId, popId, clientes, arpu, faturamentoOverride, revenueSharePct, composicaoMode, capex, opexMensal, precoProposto, precoPropostoTocado]);
 
   useEffect(() => {
     if (cidadeId) runSimulation();
@@ -118,8 +138,15 @@ export default function NewSimulation() {
           rampa: ramp,
         },
       });
-      const proposta = await api.proposals.create({ simulacao_id: sim.id, cidade_id: cidadeId });
-      setProposalStatus(`Proposta ${proposta.numero} gerada com sucesso.`);
+      const proposta = await api.proposals.create({
+        simulacao_id: sim.id,
+        cidade_id: cidadeId,
+        parceiro_id: parceiroId || null,
+        parceiro_nome_capa: parceiroNomeCapa || null,
+        parceiro_cargo_contato: parceiroCargoContato || null,
+        validade_dias: Number(validadeDias) || 15,
+      });
+      setProposalStatus({ numero: proposta.numero, id: proposta.id });
     } catch (err) {
       setProposalStatus(null);
       setError(err instanceof ApiError ? err.message : 'Erro ao gerar proposta.');
@@ -187,10 +214,10 @@ export default function NewSimulation() {
           <Field label="Faturamento (auto = clientes × ARPU)">
             <input type="number" min="0" step="0.01" placeholder="automático" value={faturamentoOverride} onChange={(e) => setFaturamentoOverride(e.target.value)} />
           </Field>
-          <Field label="Revenue Share %">
+          <Field label={<>Revenue Share % <HelpTooltip text="Percentual do faturamento do parceiro repassado à OptiMon como parte da composição do preço mensal." /></>}>
             <input type="number" min="0" max="1" step="0.01" value={revenueSharePct} onChange={(e) => setRevenueSharePct(e.target.value)} />
           </Field>
-          <Field label="Composição">
+          <Field label={<>Composição <HelpTooltip text="Regra usada para calcular o total mensal a partir do piso e do revenue share: MAX (maior entre os dois), SUM (soma), FLOOR_ONLY (só piso) ou MINIMUM_ONLY (só mínimo contratual)." /></>}>
             <select value={composicaoMode} onChange={(e) => setComposicaoMode(e.target.value)}>
               {COMPOSICAO_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
@@ -217,11 +244,45 @@ export default function NewSimulation() {
           <Field label="OPEX mensal">
             <input type="number" min="0" step="0.01" value={opexMensal} onChange={(e) => setOpexMensal(e.target.value)} />
           </Field>
+          <Field label={<>Preço proposto (R$/mês — sugestão: recomendado) <HelpTooltip text="Valor que você pretende oferecer ao parceiro. Abaixo do recomendado, a proposta nasce em 'Em Aprovação' e precisa de aprovação de um DIRETOR/ADMINISTRADOR." /></>}>
+            <input
+              type="number" min="0" step="0.01" value={precoProposto}
+              onChange={(e) => { setPrecoProposto(e.target.value); setPrecoPropostoTocado(true); }}
+            />
+          </Field>
         </div>
         <div style={{ marginTop: 18 }}>
           <button className="btn btn-primary" onClick={runSimulation} disabled={loading || !cidadeId}>
             {loading ? 'Calculando…' : 'Simular'}
           </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 className="section-title">Parceiro (capa da proposta)</h2>
+        <div className="form-grid">
+          <Field label="Parceiro cadastrado (opcional)">
+            <select value={parceiroId} onChange={(e) => {
+              const id = e.target.value;
+              setParceiroId(id);
+              const p = partners.find((x) => x.id === id);
+              if (p) setParceiroNomeCapa(p.nome_fantasia || p.razao_social);
+            }}>
+              <option value="">Nenhum — usar nome livre abaixo</option>
+              {partners.map((p) => (
+                <option key={p.id} value={p.id}>{p.nome_fantasia || p.razao_social}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Nome do parceiro na capa">
+            <input value={parceiroNomeCapa} onChange={(e) => setParceiroNomeCapa(e.target.value)} placeholder="Nome exibido na proposta" />
+          </Field>
+          <Field label="Cargo do contato">
+            <input value={parceiroCargoContato} onChange={(e) => setParceiroCargoContato(e.target.value)} placeholder="ex.: Diretor Comercial" />
+          </Field>
+          <Field label="Validade da proposta (dias)">
+            <input type="number" min="1" value={validadeDias} onChange={(e) => setValidadeDias(e.target.value)} />
+          </Field>
         </div>
       </div>
 
@@ -342,9 +403,9 @@ export default function NewSimulation() {
             </button>
             {proposalStatus && proposalStatus !== 'salvando' && (
               <div style={{ marginTop: 12 }}>
-                <span className="badge status-allow">{proposalStatus}</span>{' '}
-                <button className="link-tab" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => navigate('/propostas')}>
-                  Ver propostas →
+                <span className="badge status-allow">Proposta {proposalStatus.numero} gerada com sucesso.</span>{' '}
+                <button className="link-tab" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => navigate(`/propostas/${proposalStatus.id}`)}>
+                  Ver proposta →
                 </button>
               </div>
             )}

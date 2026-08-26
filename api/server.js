@@ -19,6 +19,7 @@ const citiesRoutes = require('./routes/cities');
 const infraRoutes = require('./routes/infra');
 const simulationsRoutes = require('./routes/simulations');
 const proposalsRoutes = require('./routes/proposals');
+const partnersRoutes = require('./routes/partners');
 const auditRoutes = require('./routes/audit');
 const { getVersionInfo } = require('./lib/version');
 
@@ -42,6 +43,12 @@ app.use(
       return callback(new Error(`Origem não autorizada: ${origin}`));
     },
     credentials: false,
+    // Fase 2.4: exportação de proposta (GET /api/proposals/:id/export) manda o nome do
+    // arquivo em Content-Disposition — por padrão o navegador não expõe esse header pro
+    // JS em requisição cross-origin (frontend Vercel x API Railway), então o fetch() do
+    // frontend (web/src/lib/api.js:apiDownload) sempre caía no nome genérico de
+    // fallback. Precisa expor explicitamente.
+    exposedHeaders: ['Content-Disposition'],
   })
 );
 
@@ -52,6 +59,7 @@ app.use('/api/cities', requireAuth, citiesRoutes);
 app.use('/api/infra', requireAuth, infraRoutes);
 app.use('/api/simulations', requireAuth, simulationsRoutes);
 app.use('/api/proposals', requireAuth, proposalsRoutes);
+app.use('/api/partners', requireAuth, partnersRoutes);
 app.use('/api/audit', requireAuth, auditRoutes);
 
 // GET /health — seção 6/40: contrato exato exigido pelo checklist de deploy.

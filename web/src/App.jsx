@@ -9,7 +9,9 @@ import CityDetail from './pages/CityDetail';
 import EditCity from './pages/EditCity';
 import NewSimulation from './pages/NewSimulation';
 import Proposals from './pages/Proposals';
+import ProposalDetail from './pages/ProposalDetail';
 import Audit from './pages/Audit';
+import Help from './pages/Help';
 
 export default function App() {
   return (
@@ -29,7 +31,9 @@ export default function App() {
         <Route path="/cidades/:id/editar" element={<EditCity />} />
         <Route path="/simulacao" element={<NewSimulation />} />
         <Route path="/propostas" element={<Proposals />} />
+        <Route path="/propostas/:id" element={<ProposalDetail />} />
         <Route path="/auditoria" element={<Audit />} />
+        <Route path="/ajuda" element={<Help />} />
       </Route>
     </Routes>
   );

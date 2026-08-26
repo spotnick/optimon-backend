@@ -1,0 +1,27 @@
+// OptiMon — Fase 2.4 (seção 2): Glossário de termos usados no sistema.
+
+export const GLOSSARIO = [
+  { termo: 'ARPU', definicao: 'Average Revenue Per User — receita média mensal por cliente final, usada para estimar o faturamento total de uma praça.' },
+  { termo: 'Abertura', definicao: 'Preço inicial de referência para negociação, mais alto que o preço recomendado — ponto de partida antes de qualquer desconto.' },
+  { termo: 'Cabo', definicao: 'Cabo óptico cadastrado dentro de um segmento de rede; ao ser criado, gera automaticamente as fibras que o compõem.' },
+  { termo: 'Cessão de Rede', definicao: 'Modelo de negócio da OptiMon: disponibilizar infraestrutura de rede óptica já construída para um parceiro operar, sem que ele precise investir em rede própria.' },
+  { termo: 'Composição de Preço', definicao: 'Regra usada para calcular o total mensal pago à OptiMon a partir do piso e do revenue share — modos possíveis: MAX, SUM, FLOOR_ONLY, MINIMUM_ONLY.' },
+  { termo: 'Desconto Máximo Permitido', definicao: 'Percentual máximo de desconto que um perfil comercial pode aplicar em relação ao preço de abertura sem precisar de autorização especial.' },
+  { termo: 'Faturamento', definicao: 'Receita total mensal estimada do parceiro na praça (clientes × ARPU).' },
+  { termo: 'Fibra', definicao: 'Unidade individual dentro de um cabo óptico. Status possíveis: LIVRE, OCUPADA, RESERVADA, LOCADA, MANUTENÇÃO, BLOQUEADA.' },
+  { termo: 'Governança (governance_status)', definicao: 'Avaliação automática (ALLOW/REVIEW/BLOCK) de quão adequado é o preço proposto em relação ao piso e ao desconto máximo permitido para o perfil que está propondo.' },
+  { termo: 'Piso (Floor)', definicao: 'Valor mínimo absoluto que a OptiMon aceita cobrar em uma praça — nunca deve ser oferecido a um parceiro sem autorização formal de DIRETOR ou ADMINISTRADOR.' },
+  { termo: 'POP', definicao: 'Ponto de Presença — local físico onde a rede óptica se concentra dentro de uma cidade, de onde partem os segmentos.' },
+  { termo: 'Porta PON', definicao: 'Interface de rede que define a capacidade de atendimento de clientes finais em um POP.' },
+  { termo: 'Preço Proposto', definicao: 'Valor que o comercial efetivamente pretende oferecer ao parceiro — pode ser igual, acima ou abaixo do preço recomendado.' },
+  { termo: 'Preço Recomendado', definicao: 'Sugestão de preço calculada pelo Pricing Engine a partir do piso, da economia de infraestrutura e dos parâmetros da simulação.' },
+  { termo: 'Pricing Engine', definicao: 'Motor de cálculo central do OptiMon que determina piso, preço recomendado, abertura, faturamento e governança a partir dos parâmetros de uma simulação — toda a lógica vive no banco de dados (SQL), nunca no frontend.' },
+  { termo: 'Proposta Comercial', definicao: 'Documento formal gerado a partir de uma simulação salva, com número único, status próprio e histórico de versões — nunca é sobrescrita, cada mudança relevante vira uma nova versão.' },
+  { termo: 'Proposta Externa', definicao: 'Visão/documento da proposta preparado para o parceiro — nunca inclui piso, desconto aplicado ou dados de governança/autorização interna.' },
+  { termo: 'Proposta Interna', definicao: 'Visão/documento completo da proposta, incluindo piso, desconto, limite de desconto e status de governança — uso exclusivo da equipe OptiMon.' },
+  { termo: 'Revenue Share', definicao: 'Percentual do faturamento do parceiro repassado à OptiMon como parte da composição do preço mensal.' },
+  { termo: 'RLS (Row-Level Security)', definicao: 'Mecanismo do banco de dados que restringe, linha a linha, quais dados cada perfil de usuário pode ler ou alterar — é a camada final de segurança, aplicada mesmo que a interface tente algo indevido.' },
+  { termo: 'Segmento', definicao: 'Trecho de rede que conecta uma origem a um destino dentro de uma cidade, contendo um ou mais cabos.' },
+  { termo: 'Simulação', definicao: 'Cálculo de precificação salvo, associado a uma cidade, volume de clientes, ARPU e demais parâmetros — é a partir de uma simulação salva que uma proposta é gerada.' },
+  { termo: 'Total Payable', definicao: 'Valor mensal total que o parceiro paga à OptiMon, resultado da composição de preço escolhida.' },
+];

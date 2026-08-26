@@ -1,35 +1,57 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatCurrencyFull } from '../components/charts/chartUtils';
 
 const STATUS_CLASS = {
   RASCUNHO: 'status-discount',
-  ENVIADA: 'status-director',
+  EM_APROVACAO: 'status-director',
   APROVADA: 'status-allow',
-  REJEITADA: 'status-block',
+  ENVIADA: 'status-allow',
+  EM_NEGOCIACAO: 'status-director',
+  ACEITA: 'status-allow',
+  RECUSADA: 'status-block',
+  EXPIRADA: 'status-block',
+  CANCELADA: 'status-block',
+};
+
+const STATUS_LABELS = {
+  RASCUNHO: 'Rascunho', EM_APROVACAO: 'Em Aprovação', APROVADA: 'Aprovada', ENVIADA: 'Enviada',
+  EM_NEGOCIACAO: 'Em Negociação', ACEITA: 'Aceita', RECUSADA: 'Recusada', EXPIRADA: 'Expirada', CANCELADA: 'Cancelada',
 };
 
 export default function Proposals() {
   const [proposals, setProposals] = useState(null);
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(null);
+  const [statusFiltro, setStatusFiltro] = useState('');
 
   useEffect(() => {
-    api.proposals.list().then(setProposals).catch((err) => setError(err.message));
-  }, []);
+    setProposals(null);
+    api.proposals.list(statusFiltro ? { status: statusFiltro } : {}).then(setProposals).catch((err) => setError(err.message));
+  }, [statusFiltro]);
 
   if (error) return <div className="page"><div className="error-banner">{error}</div></div>;
-  if (!proposals) return <div className="page"><div className="spinner" /></div>;
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>Propostas Comerciais</h1>
-        <p>Histórico de propostas geradas — snapshot imutável no momento da criação.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1>Propostas Comerciais</h1>
+          <p>Histórico de propostas geradas — cada versão fica preservada, nunca sobrescrita.</p>
+        </div>
+        <div className="field" style={{ minWidth: 220 }}>
+          <label>Filtrar por status</label>
+          <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)}>
+            <option value="">Todos</option>
+            {Object.keys(STATUS_LABELS).map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+          </select>
+        </div>
       </div>
 
-      {proposals.length === 0 ? (
-        <div className="card"><div className="empty-state">Nenhuma proposta gerada ainda. Crie uma em "Nova Simulação".</div></div>
+      {!proposals ? (
+        <div className="card"><div className="spinner" /></div>
+      ) : proposals.length === 0 ? (
+        <div className="card"><div className="empty-state">Nenhuma proposta encontrada. Crie uma em "Nova Simulação".</div></div>
       ) : (
         <div className="card" style={{ padding: 0 }}>
           <div className="table-scroll">
@@ -37,9 +59,11 @@ export default function Proposals() {
               <thead>
                 <tr>
                   <th>Número</th>
+                  <th>Versão</th>
                   <th>Status</th>
+                  <th>Cidade</th>
+                  <th>Parceiro</th>
                   <th className="num">Preço proposto</th>
-                  <th className="num">PONs</th>
                   <th className="num">Total a pagar</th>
                   <th>Criado em</th>
                   <th></th>
@@ -47,41 +71,17 @@ export default function Proposals() {
               </thead>
               <tbody>
                 {proposals.map((p) => (
-                  <Fragment key={p.id}>
-                    <tr>
-                      <td style={{ fontFamily: 'var(--font-mono)' }}>{p.numero}</td>
-                      <td><span className={`badge ${STATUS_CLASS[p.status] || ''}`}>{p.status}</span></td>
-                      <td className="num">{formatCurrencyFull(p.snapshot?.preco_proposto)}</td>
-                      <td className="num">{p.snapshot?.pons_count ?? '—'}</td>
-                      <td className="num">{formatCurrencyFull(p.snapshot?.total_payable)}</td>
-                      <td>{new Date(p.criado_em).toLocaleString('pt-BR')}</td>
-                      <td>
-                        <button
-                          className="link-tab"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.82rem' }}
-                          onClick={() => setExpanded(expanded === p.id ? null : p.id)}
-                        >
-                          {expanded === p.id ? 'Ocultar' : 'Detalhe'}
-                        </button>
-                      </td>
-                    </tr>
-                    {expanded === p.id && (
-                      <tr>
-                        <td colSpan={7} style={{ background: 'var(--bg)' }}>
-                          <div className="card-grid" style={{ padding: '12px 0' }}>
-                            <div><strong>PISO:</strong> {formatCurrencyFull(p.snapshot?.floor)}</div>
-                            <div><strong>RECOMENDADO:</strong> {formatCurrencyFull(p.snapshot?.recommended)}</div>
-                            <div><strong>ABERTURA:</strong> {formatCurrencyFull(p.snapshot?.opening)}</div>
-                            <div><strong>Revenue Share:</strong> {formatCurrencyFull(p.snapshot?.revenue_share_value)}</div>
-                            <div><strong>Receita do parceiro:</strong> {formatCurrencyFull(p.snapshot?.partner_revenue)}</div>
-                            <div><strong>Carência:</strong> {p.snapshot?.carencia_meses ?? 0} meses</div>
-                            <div><strong>Reajuste:</strong> {p.snapshot?.reajuste_indice ?? '—'}</div>
-                            <div><strong>Governança:</strong> {p.snapshot?.governance_status?.por_papel ?? '—'}</div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'var(--font-mono)' }}>{p.numero}</td>
+                    <td>V{p.numero_versao || 1}</td>
+                    <td><span className={`badge ${STATUS_CLASS[p.status] || ''}`}>{STATUS_LABELS[p.status] || p.status}</span></td>
+                    <td>{p.cidade_nome} — {p.cidade_uf}</td>
+                    <td>{p.parceiro_nome_capa || p.parceiro_nome_fantasia || p.parceiro_razao_social || '—'}</td>
+                    <td className="num">{formatCurrencyFull(p.snapshot?.preco_proposto)}</td>
+                    <td className="num">{formatCurrencyFull(p.snapshot?.total_payable)}</td>
+                    <td>{new Date(p.criado_em).toLocaleString('pt-BR')}</td>
+                    <td><Link className="link-tab" to={`/propostas/${p.id}`}>Detalhe →</Link></td>
+                  </tr>
                 ))}
               </tbody>
             </table>

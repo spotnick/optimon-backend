@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import OnboardingModal from './OnboardingModal';
 
 const ENV = import.meta.env.VITE_APP_ENVIRONMENT || 'DEMONSTRAÇÃO';
 
@@ -9,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/simulacao', label: 'Nova Simulação', icon: '✎' },
   { to: '/propostas', label: 'Propostas', icon: '▤' },
   { to: '/auditoria', label: 'Auditoria', icon: '≣' },
+  { to: '/ajuda', label: 'Ajuda & Manuais', icon: '?' },
 ];
 
 export default function Layout() {
@@ -62,6 +64,7 @@ export default function Layout() {
         </header>
         <Outlet />
       </div>
+      <OnboardingModal />
     </div>
   );
 }
