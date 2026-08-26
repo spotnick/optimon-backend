@@ -22,9 +22,16 @@ declare
   v_admin_id uuid;
   v_cidade_id uuid;
   v_segmento_id uuid;
+  v_pop_id uuid;
   v_cabo_id uuid;
   i integer;
   v_par integer;
+  -- Fase 2.2.1 (seção 29): pricing_version passou a ser uma coluna real e NOT NULL
+  -- (migration 20260830090000) — todo INSERT em pricing_parametros precisa informar um
+  -- rótulo. Usa o mesmo formato do backfill dessa migration (to_char(vigente_desde,
+  -- 'YYYY.MM')): como aqui vigente_desde é sempre current_date (default da coluna), o
+  -- rótulo já nasce correto.
+  v_pricing_version text := to_char(current_date, 'YYYY.MM');
 begin
   -- Usuário administrador: precisa já existir (ver instruções no cabeçalho deste arquivo).
   select id into v_admin_id from public.usuarios where perfil = 'ADMINISTRADOR' order by criado_em limit 1;
@@ -43,9 +50,19 @@ begin
   values (v_cidade_id, 'Rede Jussara - troncal principal', 'POP Jussara', 'Limite urbano', 5)
   returning id into v_segmento_id;
 
+  -- POP-01: a migration 20260825100100_infra_pops.sql só cria este POP-01 automaticamente
+  -- por BACKFILL, para cabos que já existiam NO MOMENTO em que essa migration roda. Como
+  -- num deploy real todas as migrations rodam antes de qualquer seed (ordem inversa da
+  -- reconstrução incremental usada localmente fase a fase), o backfill não encontra nenhum
+  -- cabo pré-existente e não cria nada — este seed precisa criar o POP-01 explicitamente,
+  -- com o mesmo código/nome/tipo que o backfill teria usado, e já vincular o cabo a ele.
+  insert into public.infra_pops (cidade_id, codigo, nome, tipo, observacoes)
+  values (v_cidade_id, 'POP-01', 'POP-01', 'PRINCIPAL', 'POP principal da rede Jussara.')
+  returning id into v_pop_id;
+
   -- Cabo de 12 fibras.
-  insert into public.infra_cabos (segmento_id, identificacao, capacidade_fo)
-  values (v_segmento_id, 'CABO-JUSSARA-01', 12)
+  insert into public.infra_cabos (segmento_id, pop_id, identificacao, capacidade_fo)
+  values (v_segmento_id, v_pop_id, 'CABO-JUSSARA-01', 12)
   returning id into v_cabo_id;
 
   -- 12 fibras: pares 1..6. Par 1 (fibras 1 e 2) reservado para a Prefeitura -> BLOQUEADA.
@@ -67,19 +84,19 @@ begin
   values (v_cidade_id, v_segmento_id, 'Lote de postes - rede Jussara', 'Concessionária local de energia', 165, 1108.80);
 
   -- Parâmetros de pricing de referência (seção 8, 9, 10, 43 — nada hard-coded no backend).
-  insert into public.pricing_parametros (chave, valor, unidade, descricao, criado_por) values
-    ('DARK_FIBER_PRECO_MINIMO_PAR_MES', 1500, 'BRL', 'Preço mínimo por par/mês — Cenário 1 (Dark Fiber).', v_admin_id),
-    ('DARK_FIBER_PRECO_PAR_KM_MES', 300, 'BRL', 'Preço por par-km/mês — Cenário 1 (Dark Fiber).', v_admin_id),
-    ('DARK_FIBER_MULTIPLICADOR_RECOMENDADO', 1.20, 'x', 'Preço recomendado = mínimo × este fator.', v_admin_id),
-    ('DARK_FIBER_MULTIPLICADOR_PREMIUM', 1.50, 'x', 'Preço premium = mínimo × este fator.', v_admin_id),
-    ('HIBRIDO_FIXO_MES', 1000, 'BRL', 'Parcela fixa mensal — Cenário 2 (Fibra + OLT + Revenue Share).', v_admin_id),
-    ('HIBRIDO_REVENUE_SHARE_PCT', 0.12, '%', 'Percentual de Revenue Share sobre o faturamento bruto do parceiro.', v_admin_id),
-    ('HIBRIDO_VALOR_MINIMO_CLIENTE', 12, 'BRL', 'Valor mínimo por cliente para cálculo de Take-or-Pay.', v_admin_id),
-    ('HIBRIDO_CLIENTES_MINIMO_TAKE_OR_PAY', 100, 'clientes', 'Quantidade mínima de clientes para Take-or-Pay.', v_admin_id),
-    ('RAMPA_MESES_1_3_PCT', 0.50, '%', 'Fator de rampa de maturação — meses 1 a 3.', v_admin_id),
-    ('RAMPA_MESES_4_6_PCT', 0.75, '%', 'Fator de rampa de maturação — meses 4 a 6.', v_admin_id),
-    ('RAMPA_MES_7_MAIS_PCT', 1.00, '%', 'Fator de rampa de maturação — mês 7 em diante.', v_admin_id),
-    ('CONTRATO_PRAZO_MINIMO_MESES', 48, 'meses', 'Prazo mínimo padrão de contrato (seção 11).', v_admin_id);
+  insert into public.pricing_parametros (chave, valor, unidade, descricao, criado_por, pricing_version) values
+    ('DARK_FIBER_PRECO_MINIMO_PAR_MES', 1500, 'BRL', 'Preço mínimo por par/mês — Cenário 1 (Dark Fiber).', v_admin_id, v_pricing_version),
+    ('DARK_FIBER_PRECO_PAR_KM_MES', 300, 'BRL', 'Preço por par-km/mês — Cenário 1 (Dark Fiber).', v_admin_id, v_pricing_version),
+    ('DARK_FIBER_MULTIPLICADOR_RECOMENDADO', 1.20, 'x', 'Preço recomendado = mínimo × este fator.', v_admin_id, v_pricing_version),
+    ('DARK_FIBER_MULTIPLICADOR_PREMIUM', 1.50, 'x', 'Preço premium = mínimo × este fator.', v_admin_id, v_pricing_version),
+    ('HIBRIDO_FIXO_MES', 1000, 'BRL', 'Parcela fixa mensal — Cenário 2 (Fibra + OLT + Revenue Share).', v_admin_id, v_pricing_version),
+    ('HIBRIDO_REVENUE_SHARE_PCT', 0.12, '%', 'Percentual de Revenue Share sobre o faturamento bruto do parceiro.', v_admin_id, v_pricing_version),
+    ('HIBRIDO_VALOR_MINIMO_CLIENTE', 12, 'BRL', 'Valor mínimo por cliente para cálculo de Take-or-Pay.', v_admin_id, v_pricing_version),
+    ('HIBRIDO_CLIENTES_MINIMO_TAKE_OR_PAY', 100, 'clientes', 'Quantidade mínima de clientes para Take-or-Pay.', v_admin_id, v_pricing_version),
+    ('RAMPA_MESES_1_3_PCT', 0.50, '%', 'Fator de rampa de maturação — meses 1 a 3.', v_admin_id, v_pricing_version),
+    ('RAMPA_MESES_4_6_PCT', 0.75, '%', 'Fator de rampa de maturação — meses 4 a 6.', v_admin_id, v_pricing_version),
+    ('RAMPA_MES_7_MAIS_PCT', 1.00, '%', 'Fator de rampa de maturação — mês 7 em diante.', v_admin_id, v_pricing_version),
+    ('CONTRATO_PRAZO_MINIMO_MESES', 48, 'meses', 'Prazo mínimo padrão de contrato (seção 11).', v_admin_id, v_pricing_version);
 
-  raise notice 'Seed Jussara-PR aplicado. cidade_id=%, cabo_id=%, admin_id=%', v_cidade_id, v_cabo_id, v_admin_id;
+  raise notice 'Seed Jussara-PR aplicado. cidade_id=%, pop_id=%, cabo_id=%, admin_id=%', v_cidade_id, v_pop_id, v_cabo_id, v_admin_id;
 end $$;
