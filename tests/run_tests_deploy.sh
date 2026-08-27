@@ -88,9 +88,19 @@ start_if_down 3000 "postgrest $ROOT/supabase/dev-local-only/postgrest.local.conf
 start_if_down 54321 "PGRST_TARGET=http://127.0.0.1:3000 PROXY_PORT=54321 node $ROOT/supabase/dev-local-only/rest_v1_proxy.js" /tmp/deploy_proxy.log
 
 if [ ! -f api/.env ]; then
+  # Fase 2.5 (achado real ao testar o webhook de assinatura, o primeiro
+  # caminho desta API que autentica como `anon`): um projeto Supabase real
+  # emite SUPABASE_ANON_KEY como um JWT de verdade com role=anon — não uma
+  # string qualquer. Se este valor não for um JWT válido, qualquer chamada
+  # supabase-js sem override de Authorization (ex.: api/lib/supabaseClient.js
+  # anonClient()) manda esse valor cru como Bearer, e o PostgREST (jwt-secret
+  # configurado) rejeita antes mesmo de aplicar db-anon-role — nunca chega a
+  # rodar como anon de verdade. Corrigido mintando um JWT local real de
+  # role=anon com o mesmo segredo do PostgREST local.
+  ANON_JWT=$(node "$ROOT/supabase/dev-local-only/mint_jwt.js" "anon-key-no-user" anon 315360000)
   cat > api/.env <<EOF
 SUPABASE_URL=http://localhost:54321
-SUPABASE_ANON_KEY=optimon-local-dev-anon-not-a-real-jwt
+SUPABASE_ANON_KEY=$ANON_JWT
 PORT=3001
 CORS_ALLOWED_ORIGINS=http://localhost:5173
 APP_ENVIRONMENT=local

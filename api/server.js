@@ -21,9 +21,21 @@ const simulationsRoutes = require('./routes/simulations');
 const proposalsRoutes = require('./routes/proposals');
 const partnersRoutes = require('./routes/partners');
 const auditRoutes = require('./routes/audit');
+const usersRoutes = require('./routes/users');
+const { router: signaturesRoutes, webhookRouter: signaturesWebhookRoutes } = require('./routes/signatures');
+const contractsRoutes = require('./routes/contracts');
 const { getVersionInfo } = require('./lib/version');
 
 const app = express();
+
+// Fase 2.5 seção 27/49: o webhook de assinatura precisa do CORPO BRUTO (para
+// validar o HMAC — ver api/routes/signatures.js) e nunca passa por
+// `requireAuth` (quem chama é o provedor externo, sem JWT de usuário) — por
+// isso é montado ANTES do `express.json()` global abaixo. Se estivesse depois,
+// o express.json() já teria consumido o stream da requisição e o
+// express.raw() interno da rota chegaria com um buffer vazio.
+app.use('/api/signatures', signaturesWebhookRoutes);
+
 app.use(express.json());
 
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
@@ -61,6 +73,9 @@ app.use('/api/simulations', requireAuth, simulationsRoutes);
 app.use('/api/proposals', requireAuth, proposalsRoutes);
 app.use('/api/partners', requireAuth, partnersRoutes);
 app.use('/api/audit', requireAuth, auditRoutes);
+app.use('/api/users', requireAuth, usersRoutes);
+app.use('/api/signatures', requireAuth, signaturesRoutes);
+app.use('/api/contracts', requireAuth, contractsRoutes);
 
 // GET /health — seção 6/40: contrato exato exigido pelo checklist de deploy.
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'optimon-api' }));

@@ -15,11 +15,15 @@ const STATUS_CLASS = {
   RECUSADA: 'status-block',
   EXPIRADA: 'status-block',
   CANCELADA: 'status-block',
+  EM_ASSINATURA: 'status-director',
+  ASSINADA: 'status-allow',
+  CONTRATO_GERADO: 'status-allow',
 };
 
 const STATUS_LABELS = {
   RASCUNHO: 'Rascunho', EM_APROVACAO: 'Em Aprovação', APROVADA: 'Aprovada', ENVIADA: 'Enviada',
   EM_NEGOCIACAO: 'Em Negociação', ACEITA: 'Aceita', RECUSADA: 'Recusada', EXPIRADA: 'Expirada', CANCELADA: 'Cancelada',
+  EM_ASSINATURA: 'Em Aceite/Assinatura', ASSINADA: 'Assinada', CONTRATO_GERADO: 'Contrato Gerado',
 };
 
 const MUDAR_STATUS_OPCOES = ['ENVIADA', 'EM_NEGOCIACAO', 'ACEITA', 'EXPIRADA', 'CANCELADA'];
@@ -175,6 +179,17 @@ export default function ProposalDetail() {
           )}
           {canApprove && !['ACEITA', 'RECUSADA', 'EXPIRADA', 'CANCELADA'].includes(status) && (
             <button className="btn btn-danger" disabled={busy} onClick={() => runAction(() => api.proposals.reject(id, { motivo }))}>Rejeitar</button>
+          )}
+          {status === 'ASSINADA' && (
+            <button className="btn btn-primary" disabled={busy} onClick={() => runAction(async () => { const c = await api.contracts.generate({ proposta_id: id }); navigate(`/contratos/${c.id}`); })}>
+              Gerar Contrato
+            </button>
+          )}
+          {status === 'CONTRATO_GERADO' && proposta.contrato_id && (
+            <Link className="btn btn-secondary" to={`/contratos/${proposta.contrato_id}`}>Ver Contrato →</Link>
+          )}
+          {['ACEITA', 'ASSINADA'].includes(status) && (
+            <Link className="btn btn-secondary" to="/assinaturas">Ir para Assinaturas</Link>
           )}
         </div>
         {canApprove && !['ACEITA', 'RECUSADA', 'EXPIRADA', 'CANCELADA'].includes(status) && (

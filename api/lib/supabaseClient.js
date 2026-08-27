@@ -29,4 +29,18 @@ function clientForRequest(userJwt) {
   });
 }
 
-module.exports = { clientForRequest };
+/**
+ * Cliente Supabase anônimo (sem JWT de usuário) — só para a ÚNICA rota desta
+ * API que não exige `requireAuth`: o webhook de assinatura (Fase 2.5, seção
+ * 27/49), chamado pelo provedor externo, nunca por um usuário logado. Chama
+ * só RPCs com grant explícito para `anon` (ex.:
+ * pricing_signature_webhook_event_by_provider_id) — nunca a service_role, e
+ * nunca usado fora dessa rota.
+ */
+function anonClient() {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+module.exports = { clientForRequest, anonClient };

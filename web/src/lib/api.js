@@ -126,7 +126,57 @@ export const api = {
   },
 
   partners: {
-    list: () => request('/api/partners'),
+    list: (params = {}) => request(`/api/partners?${new URLSearchParams(params)}`),
+    get: (id) => request(`/api/partners/${id}`),
+    create: (body) => request('/api/partners', { method: 'POST', body }),
+    update: (id, body) => request(`/api/partners/${id}`, { method: 'PATCH', body }),
+    responsaveis: (id) => request(`/api/partners/${id}/responsaveis`),
+    addResponsavel: (id, body) => request(`/api/partners/${id}/responsaveis`, { method: 'POST', body }),
+    updateResponsavel: (id, respId, body) => request(`/api/partners/${id}/responsaveis/${respId}`, { method: 'PATCH', body }),
+    removeResponsavel: (id, respId) => request(`/api/partners/${id}/responsaveis/${respId}`, { method: 'DELETE' }),
+    documentos: (id) => request(`/api/partners/${id}/documentos`),
+    // Upload multipart — não passa por request() (JSON-only); ver uploadMultipart abaixo.
+    uploadDocumento: (id, formData) => uploadMultipart(`/api/partners/${id}/documentos`, formData),
+    documentoDownloadUrl: (docId) => request(`/api/partners/documentos/${docId}/download`),
+  },
+
+  users: {
+    list: (params = {}) => request(`/api/users?${new URLSearchParams(params)}`),
+    get: (id) => request(`/api/users/${id}`),
+    create: (body) => request('/api/users', { method: 'POST', body }),
+    update: (id, body) => request(`/api/users/${id}`, { method: 'PATCH', body }),
+    touchAccess: () => request('/api/users/me/touch-access', { method: 'POST' }),
+  },
+
+  signatures: {
+    providers: () => request('/api/signatures/providers'),
+    createProvider: (body) => request('/api/signatures/providers', { method: 'POST', body }),
+    updateProvider: (id, body) => request(`/api/signatures/providers/${id}`, { method: 'PATCH', body }),
+    envelopes: (params = {}) => request(`/api/signatures/envelopes?${new URLSearchParams(params)}`),
+    envelope: (id) => request(`/api/signatures/envelopes/${id}`),
+    createEnvelope: (formData) => uploadMultipart('/api/signatures/envelopes', formData),
+    addSigner: (id, body) => request(`/api/signatures/envelopes/${id}/signers`, { method: 'POST', body }),
+    send: (id) => request(`/api/signatures/envelopes/${id}/send`, { method: 'POST' }),
+    cancel: (id, body) => request(`/api/signatures/envelopes/${id}/cancel`, { method: 'POST', body }),
+    document: (id) => request(`/api/signatures/envelopes/${id}/document`),
+    audit: (id) => request(`/api/signatures/envelopes/${id}/audit`),
+    validate: (id) => request(`/api/signatures/envelopes/${id}/validate`, { method: 'POST' }),
+  },
+
+  contracts: {
+    list: (filtro) => request(`/api/contracts${filtro ? `?filtro=${filtro}` : ''}`),
+    get: (id) => request(`/api/contracts/${id}`),
+    generate: (body) => request('/api/contracts/generate', { method: 'POST', body }),
+    activate: (id) => request(`/api/contracts/${id}/activate`, { method: 'POST' }),
+    reajuste: (id, body) => request(`/api/contracts/${id}/reajuste`, { method: 'POST', body }),
+    aditivos: (id) => request(`/api/contracts/${id}/aditivos`),
+    createAditivo: (id, body) => request(`/api/contracts/${id}/aditivos`, { method: 'POST', body }),
+    updateAditivo: (id, aditivoId, body) => request(`/api/contracts/${id}/aditivos/${aditivoId}`, { method: 'PATCH', body }),
+    sendAditivoSignature: (id, aditivoId, body) => request(`/api/contracts/${id}/aditivos/${aditivoId}/send-signature`, { method: 'POST', body }),
+    activateAditivo: (id, aditivoId) => request(`/api/contracts/${id}/aditivos/${aditivoId}/activate`, { method: 'POST' }),
+    dashboard: () => request('/api/contracts/dashboard/resumo'),
+    gerarAlertas: () => request('/api/contracts/dashboard/gerar-alertas', { method: 'POST' }),
+    alertas: (params = {}) => request(`/api/contracts/dashboard/alertas?${new URLSearchParams(params)}`),
   },
 
   audit: {
@@ -153,6 +203,24 @@ async function apiDownload(path) {
   const fileName = match ? match[1] : 'proposta.pdf';
   const blob = await res.blob();
   return { blob, fileName };
+}
+
+// Upload multipart autenticado (documento de proponente / documento original de um
+// envelope de assinatura, Fase 2.5 seções 19/24) — nunca passa por request() porque o
+// corpo é FormData, não JSON (o navegador define o Content-Type multipart com boundary
+// sozinho; nunca setamos esse header manualmente, senão o boundary se perde).
+async function uploadMultipart(path, formData) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  let payload = null;
+  try { payload = await res.json(); } catch { /* sem corpo JSON */ }
+  if (!res.ok) throw new ApiError(payload?.error || `Erro ${res.status} ao enviar arquivo para ${path}.`, res.status);
+  return payload;
 }
 
 export { ApiError, apiDownload };

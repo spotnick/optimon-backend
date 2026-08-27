@@ -33,6 +33,8 @@ export function AuthProvider({ children }) {
     // Seção 34: registra o evento de LOGIN na auditoria — best-effort, nunca bloqueia o
     // login em si se a auditoria falhar por algum motivo transitório.
     api.audit.logLogin().catch(() => {});
+    // Fase 2.5 seção 14: registra o "último acesso" do usuário — mesmo padrão best-effort.
+    api.users.touchAccess().catch(() => {});
     return data;
   }, []);
 

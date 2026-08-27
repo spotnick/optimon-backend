@@ -12,6 +12,14 @@ import Proposals from './pages/Proposals';
 import ProposalDetail from './pages/ProposalDetail';
 import Audit from './pages/Audit';
 import Help from './pages/Help';
+import Users from './pages/Users';
+import Partners from './pages/Partners';
+import PartnerDetail from './pages/PartnerDetail';
+import Contracts from './pages/Contracts';
+import ContractDetail from './pages/ContractDetail';
+import Signatures from './pages/Signatures';
+import SignatureDetail from './pages/SignatureDetail';
+import SignatureSettings from './pages/SignatureSettings';
 
 export default function App() {
   return (
@@ -32,6 +40,14 @@ export default function App() {
         <Route path="/simulacao" element={<NewSimulation />} />
         <Route path="/propostas" element={<Proposals />} />
         <Route path="/propostas/:id" element={<ProposalDetail />} />
+        <Route path="/proponentes" element={<Partners />} />
+        <Route path="/proponentes/:id" element={<PartnerDetail />} />
+        <Route path="/contratos" element={<Contracts />} />
+        <Route path="/contratos/:id" element={<ContractDetail />} />
+        <Route path="/assinaturas" element={<Signatures />} />
+        <Route path="/assinaturas/:id" element={<SignatureDetail />} />
+        <Route path="/usuarios" element={<Users />} />
+        <Route path="/configuracoes/assinatura" element={<SignatureSettings />} />
         <Route path="/auditoria" element={<Audit />} />
         <Route path="/ajuda" element={<Help />} />
       </Route>

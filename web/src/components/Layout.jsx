@@ -9,6 +9,11 @@ const NAV_ITEMS = [
   { to: '/cidades', label: 'Cidades & Infraestrutura', icon: '◈' },
   { to: '/simulacao', label: 'Nova Simulação', icon: '✎' },
   { to: '/propostas', label: 'Propostas', icon: '▤' },
+  { to: '/proponentes', label: 'Proponentes', icon: '⌂' },
+  { to: '/contratos', label: 'Contratos', icon: '§' },
+  { to: '/assinaturas', label: 'Assinaturas', icon: '✒' },
+  { to: '/usuarios', label: 'Usuários', icon: '☺' },
+  { to: '/configuracoes/assinatura', label: 'Config. de Assinatura', icon: '⚙' },
   { to: '/auditoria', label: 'Auditoria', icon: '≣' },
   { to: '/ajuda', label: 'Ajuda & Manuais', icon: '?' },
 ];
