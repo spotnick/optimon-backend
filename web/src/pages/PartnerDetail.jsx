@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import ArchiveModal from '../components/ArchiveModal';
 
 const TIPOS_RESPONSAVEL = ['REPRESENTANTE_LEGAL', 'RESPONSAVEL_COMERCIAL', 'RESPONSAVEL_FINANCEIRO', 'RESPONSAVEL_TECNICO', 'TESTEMUNHA', 'OUTRO'];
 const TIPOS_DOCUMENTO = ['CONTRATO_SOCIAL', 'CARTAO_CNPJ', 'PROCURACAO', 'ATA', 'OUTRO'];
+const MOTIVOS_DESATIVACAO = ['Encerrou operação', 'Substituído por outro proponente', 'Erro de cadastro', 'Inadimplência', 'Outro'];
+const CAN_WRITE = ['COMERCIAL', 'DIRETOR', 'ADMINISTRADOR'];
+const CADASTRO_FIELDS = [
+  ['razao_social', 'Razão social'], ['nome_fantasia', 'Nome fantasia'], ['email_contato', 'E-mail'], ['telefone_contato', 'Telefone'],
+  ['site', 'Site'], ['inscricao_estadual', 'IE'], ['inscricao_municipal', 'IM'], ['responsavel_comercial', 'Responsável comercial'],
+  ['endereco_logradouro', 'Logradouro'], ['endereco_numero', 'Número'], ['endereco_bairro', 'Bairro'],
+  ['endereco_cidade', 'Cidade'], ['endereco_uf', 'UF'], ['endereco_cep', 'CEP'],
+];
 
 function emptyResponsavel() {
   return { nome: '', cpf: '', cargo: '', email: '', telefone: '', tipo: 'REPRESENTANTE_LEGAL', representante_legal: false };
@@ -11,10 +21,22 @@ function emptyResponsavel() {
 
 export default function PartnerDetail() {
   const { id } = useParams();
+  const { role } = useAuth();
+  const canWrite = CAN_WRITE.includes(role);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [partner, setPartner] = useState(null);
   const [responsaveis, setResponsaveis] = useState(null);
   const [documentos, setDocumentos] = useState(null);
+  const [propostas, setPropostas] = useState(null);
+  const [contratos, setContratos] = useState(null);
+  const [historico, setHistorico] = useState(null);
   const [error, setError] = useState(null);
+
+  const [editingCadastro, setEditingCadastro] = useState(searchParams.get('editar') === '1');
+  const [cadastroForm, setCadastroForm] = useState(null);
+  const [savingCadastro, setSavingCadastro] = useState(false);
+  const [cadastroError, setCadastroError] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null); // 'archive' | 'restore'
 
   const [showRespForm, setShowRespForm] = useState(false);
   const [respForm, setRespForm] = useState(emptyResponsavel());
@@ -29,11 +51,34 @@ export default function PartnerDetail() {
   const [docError, setDocError] = useState(null);
 
   function load() {
-    api.partners.get(id).then(setPartner).catch((err) => setError(err.message));
+    api.partners.get(id).then((p) => { setPartner(p); setCadastroForm(p); }).catch((err) => setError(err.message));
     api.partners.responsaveis(id).then(setResponsaveis).catch((err) => setError(err.message));
     api.partners.documentos(id).then(setDocumentos).catch((err) => setError(err.message));
+    // Fase 2.5.1 seção 11: abas Propostas/Contratos/Histórico-Auditoria.
+    api.proposals.list({ parceiro_id: id, todas_versoes: 'true' }).then(setPropostas).catch(() => setPropostas([]));
+    api.contracts.list('TODOS').then((all) => setContratos((all || []).filter((c) => c.parceiro_id === id))).catch(() => setContratos([]));
+    api.audit.list({ entidade: 'parceiros', entidade_id: id, limit: 50 }).then(setHistorico).catch(() => setHistorico([]));
   }
   useEffect(load, [id]);
+
+  async function handleSaveCadastro(e) {
+    e.preventDefault();
+    setCadastroError(null);
+    setSavingCadastro(true);
+    try {
+      const patch = {};
+      for (const [f] of CADASTRO_FIELDS) patch[f] = cadastroForm[f];
+      await api.partners.update(id, patch);
+      setEditingCadastro(false);
+      searchParams.delete('editar');
+      setSearchParams(searchParams, { replace: true });
+      load();
+    } catch (err) {
+      setCadastroError(err instanceof ApiError ? err.message : 'Erro inesperado.');
+    } finally {
+      setSavingCadastro(false);
+    }
+  }
 
   async function handleAddResponsavel(e) {
     e.preventDefault();
@@ -95,21 +140,49 @@ export default function PartnerDetail() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>{partner.nome_fantasia || partner.razao_social}</h1>
-        <p>{partner.razao_social} — CNPJ {partner.cnpj}</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1>{partner.nome_fantasia || partner.razao_social}</h1>
+          <p>{partner.razao_social} — CNPJ {partner.cnpj} — <span className={`badge ${partner.ativo ? 'status-allow' : 'status-block'}`}>{partner.ativo ? 'Ativo' : 'Inativo'}</span></p>
+        </div>
+        {canWrite && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {!editingCadastro && <button className="btn btn-secondary" onClick={() => setEditingCadastro(true)}>Editar cadastro</button>}
+            {partner.ativo ? (
+              <button className="btn btn-danger" onClick={() => setArchiveTarget('archive')}>Desativar</button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => setArchiveTarget('restore')}>Reativar</button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>Cadastro</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-          <div><strong>E-mail:</strong> {partner.email_contato || '—'}</div>
-          <div><strong>Telefone:</strong> {partner.telefone_contato || '—'}</div>
-          <div><strong>Site:</strong> {partner.site || '—'}</div>
-          <div><strong>IE:</strong> {partner.inscricao_estadual || '—'}</div>
-          <div><strong>IM:</strong> {partner.inscricao_municipal || '—'}</div>
-          <div><strong>Endereço:</strong> {partner.endereco_logradouro ? `${partner.endereco_logradouro}, ${partner.endereco_numero || 's/n'} — ${partner.endereco_cidade || ''}/${partner.endereco_uf || ''}` : '—'}</div>
-        </div>
+        {editingCadastro ? (
+          <form onSubmit={handleSaveCadastro}>
+            {cadastroError && <div className="error-banner">{cadastroError}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+              {CADASTRO_FIELDS.map(([f, label]) => (
+                <div className="field" key={f}>
+                  <label>{label}</label>
+                  <input value={cadastroForm?.[f] || ''} onChange={(e) => setCadastroForm({ ...cadastroForm, [f]: e.target.value })} />
+                </div>
+              ))}
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={savingCadastro}>{savingCadastro ? 'Salvando…' : 'Salvar cadastro'}</button>{' '}
+            <button type="button" className="btn btn-secondary" onClick={() => { setEditingCadastro(false); setCadastroForm(partner); }}>Cancelar</button>
+          </form>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div><strong>E-mail:</strong> {partner.email_contato || '—'}</div>
+            <div><strong>Telefone:</strong> {partner.telefone_contato || '—'}</div>
+            <div><strong>Site:</strong> {partner.site || '—'}</div>
+            <div><strong>IE:</strong> {partner.inscricao_estadual || '—'}</div>
+            <div><strong>IM:</strong> {partner.inscricao_municipal || '—'}</div>
+            <div><strong>Endereço:</strong> {partner.endereco_logradouro ? `${partner.endereco_logradouro}, ${partner.endereco_numero || 's/n'} — ${partner.endereco_cidade || ''}/${partner.endereco_uf || ''}` : '—'}</div>
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -213,6 +286,94 @@ export default function PartnerDetail() {
           </table>
         )}
       </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Propostas</h3>
+        {!propostas ? <div className="spinner" /> : propostas.length === 0 ? (
+          <div className="empty-state">Nenhuma proposta vinculada a este proponente ainda.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Número</th><th>Versão</th><th>Status</th><th>Criada em</th><th></th></tr></thead>
+            <tbody>
+              {propostas.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.numero}</td>
+                  <td>v{p.numero_versao || 1}</td>
+                  <td><span className="badge">{p.status}</span></td>
+                  <td>{new Date(p.criado_em).toLocaleDateString('pt-BR')}</td>
+                  <td><Link className="link-tab" to={`/propostas/${p.id}`}>Ver →</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Contratos</h3>
+        {!contratos ? <div className="spinner" /> : contratos.length === 0 ? (
+          <div className="empty-state">Nenhum contrato vinculado a este proponente ainda.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Número</th><th>Status</th><th>Prazo</th><th>Vencimento</th><th></th></tr></thead>
+            <tbody>
+              {contratos.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.numero}</td>
+                  <td><span className="badge">{c.status}</span></td>
+                  <td>{c.prazo_meses} meses</td>
+                  <td>{c.data_fim_prevista ? new Date(c.data_fim_prevista).toLocaleDateString('pt-BR') : '—'}</td>
+                  <td><Link className="link-tab" to={`/contratos/${c.id}`}>Ver →</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Histórico &amp; Auditoria</h3>
+        <p style={{ color: 'var(--text-muted, #666)', marginTop: 0 }}>
+          Eventos registrados diretamente sobre o cadastro deste proponente (criação, edição, desativação/reativação).
+          Eventos de responsáveis, documentos, propostas e contratos individuais ficam na auditoria de cada um deles —
+          ver a tela geral de <Link className="link-tab" to="/auditoria">Auditoria</Link>.
+        </p>
+        {!historico ? <div className="spinner" /> : historico.length === 0 ? (
+          <div className="empty-state">Nenhum evento registrado ainda.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Quando</th><th>Ação</th><th>Motivo</th></tr></thead>
+            <tbody>
+              {historico.map((h) => (
+                <tr key={h.id}>
+                  <td>{new Date(h.criado_em).toLocaleString('pt-BR')}</td>
+                  <td><span className="badge">{h.acao}</span></td>
+                  <td>{h.motivo || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {archiveTarget && (
+        <ArchiveModal
+          title={archiveTarget === 'archive' ? 'Desativar proponente?' : 'Reativar proponente?'}
+          subject={`${partner.nome_fantasia || partner.razao_social} — CNPJ ${partner.cnpj}. ${archiveTarget === 'archive' ? 'O proponente sai das listas ativas e não pode mais receber novas propostas — propostas e contratos já existentes são preservados integralmente.' : 'O proponente volta a poder receber novas propostas.'}`}
+          mode={archiveTarget}
+          motivoOptions={MOTIVOS_DESATIVACAO}
+          onCancel={() => setArchiveTarget(null)}
+          onConfirm={async (body) => {
+            if (archiveTarget === 'archive') {
+              await api.partners.deactivate(id, { motivo: body.motivo });
+            } else {
+              await api.partners.reactivate(id, { motivo: body.motivo });
+            }
+            setArchiveTarget(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

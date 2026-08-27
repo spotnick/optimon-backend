@@ -55,6 +55,21 @@ export default function SignatureSettings() {
     }
   }
 
+  const [testing, setTesting] = useState(null);
+  const [testResult, setTestResult] = useState({});
+  async function handleTestConnection(p) {
+    setTesting(p.id);
+    try {
+      const result = await api.signatures.testConnection(p.id);
+      setTestResult((prev) => ({ ...prev, [p.id]: result }));
+      load();
+    } catch (err) {
+      setTestResult((prev) => ({ ...prev, [p.id]: { ok: false, mensagem: err instanceof ApiError ? err.message : 'Erro inesperado.' } }));
+    } finally {
+      setTesting(null);
+    }
+  }
+
   if (error) return <div className="page"><div className="error-banner">{error}</div></div>;
 
   return (
@@ -119,25 +134,46 @@ export default function SignatureSettings() {
         <div className="card" style={{ padding: 0 }}>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Nome</th><th>Tipo</th><th>Papel</th><th>Ambiente</th><th>Política</th><th>Timeout</th><th>Status</th></tr></thead>
+              <thead><tr><th>Nome</th><th>Tipo</th><th>Papel</th><th>Ambiente</th><th>Webhook</th><th>Política</th><th>Status</th><th>Último teste</th><th>Último evento</th><th></th></tr></thead>
               <tbody>
-                {providers.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.nome}</td>
-                    <td>{p.tipo}</td>
-                    <td>{p.papel}</td>
-                    <td><span className={`badge ${p.ambiente === 'PRODUCAO' ? 'status-block' : 'status-allow'}`}>{p.ambiente}</span></td>
-                    <td>{p.politica_assinatura}</td>
-                    <td>{p.timeout_segundos}s</td>
-                    <td>
-                      {canWrite ? (
-                        <button className={`btn ${p.ativo ? 'btn-secondary' : 'btn-primary'}`} onClick={() => toggleAtivo(p)}>{p.ativo ? 'Ativo' : 'Inativo'}</button>
-                      ) : (
-                        <span className={`badge ${p.ativo ? 'status-allow' : 'status-block'}`}>{p.ativo ? 'Ativo' : 'Inativo'}</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {providers.map((p) => {
+                  const result = testResult[p.id];
+                  return (
+                    <tr key={p.id}>
+                      <td>{p.nome}</td>
+                      <td>{p.tipo}</td>
+                      <td>{p.papel}</td>
+                      <td><span className={`badge ${p.ambiente === 'PRODUCAO' ? 'status-block' : 'status-allow'}`}>{p.ambiente}</span></td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85em' }}>{p.webhook_url || '—'}</td>
+                      <td>{p.politica_assinatura}</td>
+                      <td>
+                        {canWrite ? (
+                          <button className={`btn ${p.ativo ? 'btn-secondary' : 'btn-primary'}`} onClick={() => toggleAtivo(p)}>{p.ativo ? 'Ativo' : 'Inativo'}</button>
+                        ) : (
+                          <span className={`badge ${p.ativo ? 'status-allow' : 'status-block'}`}>{p.ativo ? 'Ativo' : 'Inativo'}</span>
+                        )}
+                      </td>
+                      <td>
+                        {p.ultimo_teste_em ? (
+                          <span className={`badge ${p.ultimo_teste_status === 'OK' ? 'status-allow' : 'status-block'}`} title={p.ultimo_teste_mensagem}>
+                            {p.ultimo_teste_status === 'OK' ? '✓' : '✕'} {new Date(p.ultimo_teste_em).toLocaleString('pt-BR')}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td>{p.ultimo_evento_em ? `${p.ultimo_evento_tipo} — ${new Date(p.ultimo_evento_em).toLocaleString('pt-BR')}` : '—'}</td>
+                      <td>
+                        <button className="btn btn-secondary" disabled={testing === p.id} onClick={() => handleTestConnection(p)}>
+                          {testing === p.id ? 'Testando…' : 'Testar Conexão'}
+                        </button>
+                        {result && (
+                          <div className={result.ok ? 'badge status-allow' : 'badge status-block'} style={{ marginTop: 6, display: 'block' }}>
+                            {result.ok ? '✓ Conexão OK' : '✕ Falha'} — {result.mensagem}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

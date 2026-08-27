@@ -16,8 +16,13 @@ const MOTIVOS_ARQUIVAMENTO = [
   'Outro',
 ];
 
-export default function ArchiveModal({ title, subject, mode = 'archive', onCancel, onConfirm }) {
-  const [motivo, setMotivo] = useState(MOTIVOS_ARQUIVAMENTO[0]);
+// Fase 2.5.1 (seção 33): mesmo modal, agora reaproveitado também para
+// desativar/reativar usuário e proponente — `motivoOptions` deixa cada tela
+// passar sua própria lista de motivos sem duplicar este componente. Omitido
+// (como já era até a Fase 2.3.1), cai no default de infraestrutura acima —
+// 100% compatível com Cities.jsx/EditCity.jsx, que nunca passam essa prop.
+export default function ArchiveModal({ title, subject, mode = 'archive', motivoOptions = MOTIVOS_ARQUIVAMENTO, onCancel, onConfirm }) {
+  const [motivo, setMotivo] = useState(motivoOptions[0]);
   const [observacao, setObservacao] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -48,7 +53,7 @@ export default function ArchiveModal({ title, subject, mode = 'archive', onCance
             <div className="field" style={{ marginBottom: 12 }}>
               <label>Motivo *</label>
               <select value={motivo} onChange={(e) => setMotivo(e.target.value)}>
-                {MOTIVOS_ARQUIVAMENTO.map((m) => <option key={m} value={m}>{m}</option>)}
+                {motivoOptions.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             <div className="field">

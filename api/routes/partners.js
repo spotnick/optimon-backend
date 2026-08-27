@@ -23,6 +23,20 @@ const { clientForRequest } = require('../lib/supabaseClient');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+// Auditoria semântica é sempre best-effort — nunca deve derrubar uma resposta
+// cuja ação principal já teve sucesso. supabase-js devolve, para .rpc(), um
+// builder "thenable" (só implementa .then(), não .catch()/.finally() — não é
+// uma Promise real); encadear `.catch()` direto nele lança `TypeError:
+// ...catch is not a function` e derruba a rota com 500 (bug encontrado nos
+// testes da Fase 2.5.1). Por isso sempre `await` dentro de um try/catch.
+async function logSemanticEventBestEffort(supabase, params) {
+  try {
+    await supabase.rpc('pricing_log_semantic_event', params);
+  } catch (_err) {
+    // intencional: log de auditoria nunca bloqueia a ação principal.
+  }
+}
+
 function handleError(res, error) {
   const message = error?.message || 'Erro inesperado.';
   let status;
@@ -134,6 +148,29 @@ router.patch('/:id', async (req, res) => {
   }
   return res.json(data);
 });
+
+// POST /api/partners/:id/deactivate e /reactivate — Fase 2.5.1 (seções 9-10).
+// A escrita em si já era possível via PATCH {ativo}; estas rotas só
+// acrescentam o registro semântico de auditoria ao lado da mesma UPDATE
+// (mesma RLS de sempre — parceiros_update, COMERCIAL/DIRETOR/ADMINISTRADOR),
+// para o "porquê" (motivo) ficar registrado, não só o "o quê".
+async function setPartnerActive(req, res, ativo) {
+  const { motivo } = req.body || {};
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.from('parceiros').update({ ativo }).eq('id', req.params.id).select(PROPONENTE_FIELDS).maybeSingle();
+  if (error) return handleError(res, error);
+  if (!data) {
+    const { data: exists } = await supabase.from('parceiros').select('id').eq('id', req.params.id).maybeSingle();
+    if (exists) return res.status(403).json({ error: 'PERMISSAO_NEGADA: só COMERCIAL/DIRETOR/ADMINISTRADOR podem desativar/reativar proponente.' });
+    return res.status(404).json({ error: `Proponente ${req.params.id} não encontrado.` });
+  }
+  await logSemanticEventBestEffort(supabase, {
+    p_entidade: 'parceiros', p_entidade_id: req.params.id, p_acao: ativo ? 'PARTNER_REACTIVATE' : 'PARTNER_DEACTIVATE', p_motivo: motivo || null,
+  });
+  return res.json(data);
+}
+router.post('/:id/deactivate', (req, res) => setPartnerActive(req, res, false));
+router.post('/:id/reactivate', (req, res) => setPartnerActive(req, res, true));
 
 // ============================================================================
 // Responsáveis (seção 17-18)

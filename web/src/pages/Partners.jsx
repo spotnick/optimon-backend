@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import ArchiveModal from '../components/ArchiveModal';
+
+const MOTIVOS_DESATIVACAO = ['Encerrou operação', 'Substituído por outro proponente', 'Erro de cadastro', 'Inadimplência', 'Outro'];
+const CAN_WRITE = ['COMERCIAL', 'DIRETOR', 'ADMINISTRADOR'];
 
 // Fase 2.5 seção 16 — /proponentes. "Proponente" = a tabela `parceiros` já
 // existente, estendida (ver migration 02) — nunca uma entidade nova/paralela.
@@ -9,19 +14,25 @@ function emptyForm() {
 }
 
 export default function Partners() {
+  const { role } = useAuth();
+  const canWrite = CAN_WRITE.includes(role);
   const [partners, setPartners] = useState(null);
   const [error, setError] = useState(null);
   const [q, setQ] = useState('');
+  const [statusFilter, setStatusFilter] = useState('true');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null); // { partner, mode }
 
   function load() {
     setPartners(null);
-    api.partners.list(q ? { q } : {}).then(setPartners).catch((err) => setError(err.message));
+    const params = { ativo: statusFilter };
+    if (q) params.q = q;
+    api.partners.list(params).then(setPartners).catch((err) => setError(err.message));
   }
-  useEffect(load, [q]);
+  useEffect(load, [q, statusFilter]);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -53,7 +64,15 @@ export default function Partners() {
             <label>Buscar</label>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Razão social, fantasia ou CNPJ" />
           </div>
-          <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>{showForm ? 'Cancelar' : '+ Novo Proponente'}</button>
+          <div className="field">
+            <label>Status</label>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="true">Ativos</option>
+              <option value="false">Inativos</option>
+              <option value="todos">Todos</option>
+            </select>
+          </div>
+          {canWrite && <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>{showForm ? 'Cancelar' : '+ Novo Proponente'}</button>}
         </div>
       </div>
 
@@ -82,7 +101,7 @@ export default function Partners() {
         <div className="card" style={{ padding: 0 }}>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Razão social</th><th>Fantasia</th><th>CNPJ</th><th>Cidade</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Razão social</th><th>Fantasia</th><th>CNPJ</th><th>Cidade</th><th>Status</th><th>Ações</th></tr></thead>
               <tbody>
                 {partners.map((p) => (
                   <tr key={p.id}>
@@ -91,13 +110,42 @@ export default function Partners() {
                     <td style={{ fontFamily: 'var(--font-mono)' }}>{p.cnpj}</td>
                     <td>{p.endereco_cidade ? `${p.endereco_cidade}/${p.endereco_uf || ''}` : '—'}</td>
                     <td><span className={`badge ${p.ativo ? 'status-allow' : 'status-block'}`}>{p.ativo ? 'Ativo' : 'Inativo'}</span></td>
-                    <td><Link className="link-tab" to={`/proponentes/${p.id}`}>Detalhe →</Link></td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <Link className="link-tab" to={`/proponentes/${p.id}`}>Visualizar</Link>
+                        {canWrite && <Link className="link-tab" to={`/proponentes/${p.id}?editar=1`}>Editar</Link>}
+                        {canWrite && (p.ativo ? (
+                          <button className="btn btn-danger" onClick={() => setArchiveTarget({ partner: p, mode: 'archive' })}>Desativar</button>
+                        ) : (
+                          <button className="btn btn-primary" onClick={() => setArchiveTarget({ partner: p, mode: 'restore' })}>Reativar</button>
+                        ))}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {archiveTarget && (
+        <ArchiveModal
+          title={archiveTarget.mode === 'archive' ? 'Desativar proponente?' : 'Reativar proponente?'}
+          subject={`${archiveTarget.partner.nome_fantasia || archiveTarget.partner.razao_social} — CNPJ ${archiveTarget.partner.cnpj}. ${archiveTarget.mode === 'archive' ? 'O proponente sai das listas ativas e não pode mais receber novas propostas — propostas e contratos já existentes são preservados integralmente.' : 'O proponente volta a poder receber novas propostas.'}`}
+          mode={archiveTarget.mode}
+          motivoOptions={MOTIVOS_DESATIVACAO}
+          onCancel={() => setArchiveTarget(null)}
+          onConfirm={async (body) => {
+            if (archiveTarget.mode === 'archive') {
+              await api.partners.deactivate(archiveTarget.partner.id, { motivo: body.motivo });
+            } else {
+              await api.partners.reactivate(archiveTarget.partner.id, { motivo: body.motivo });
+            }
+            setArchiveTarget(null);
+            load();
+          }}
+        />
       )}
     </div>
   );

@@ -34,6 +34,10 @@ class ElectronicSignatureProvider {
   async getAuditTrail(providerEnvelopeId) { throw new Error('not implemented'); }
   async validateSignature(providerEnvelopeId) { throw new Error('not implemented'); }
   async getCertificateInfo(providerEnvelopeId, signerId) { throw new Error('not implemented'); }
+  // Fase 2.5.1 seção 18 — "TESTAR CONEXÃO": diagnóstico de configuração/
+  // alcançabilidade do provedor, sem expor nenhum secret na resposta (nunca
+  // o valor de api_key_ref/webhook_secret_ref, só o diagnóstico em si).
+  async testConnection() { throw new Error('not implemented'); }
   /* eslint-enable class-methods-use-this, no-unused-vars */
 }
 
@@ -114,6 +118,19 @@ class MockHomologacaoProvider extends ElectronicSignatureProvider {
       signerId,
       tipo: 'ICP_BRASIL_QUALIFICADA_MOCK',
       emissor: 'AC MOCK HOMOLOGAÇÃO (não é uma Autoridade Certificadora real — seção 2/72)',
+    };
+  }
+
+  // Nunca toca rede real (é o próprio ponto do mock) — o "diagnóstico" aqui é
+  // honesto sobre o que está sendo testado: a própria configuração do
+  // provedor (tipo/ambiente válidos), nunca finge testar uma conectividade de
+  // rede que não existe nesta implementação. Ver relatório final: um provedor
+  // real (ICP_BRASIL_PROVEDOR_EXTERNO) faria aqui uma chamada HTTP de
+  // diagnóstico de verdade contra `api_url`.
+  async testConnection() {
+    return {
+      ok: true,
+      mensagem: 'Provedor MOCK de HOMOLOGAÇÃO — configuração válida (nenhuma chamada de rede real é feita; este provedor nunca deve ser usado em produção).',
     };
   }
 }

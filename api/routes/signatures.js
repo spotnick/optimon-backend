@@ -26,6 +26,20 @@ const router = express.Router();
 const webhookRouter = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+// Auditoria semântica é sempre best-effort — nunca deve derrubar uma resposta
+// cuja ação principal já teve sucesso. supabase-js devolve, para .rpc(), um
+// builder "thenable" (só implementa .then(), não .catch()/.finally() — não é
+// uma Promise real); encadear `.catch()` direto nele lança `TypeError:
+// ...catch is not a function` e derruba a rota com 500 (bug encontrado nos
+// testes da Fase 2.5.1). Por isso sempre `await` dentro de um try/catch.
+async function logSemanticEventBestEffort(supabase, params) {
+  try {
+    await supabase.rpc('pricing_log_semantic_event', params);
+  } catch (_err) {
+    // intencional: log de auditoria nunca bloqueia a ação principal.
+  }
+}
+
 function handleError(res, error) {
   const message = error?.message || 'Erro inesperado.';
   let status;
@@ -55,9 +69,14 @@ const PROVIDER_FIELDS = 'id, nome, tipo, papel, ambiente, api_url, webhook_url, 
 // configurando o provedor, então é incluído à parte, explicitamente.
 const PROVIDER_FIELDS_ADMIN = `${PROVIDER_FIELDS}, api_key_ref, webhook_secret_ref`;
 
+// Fase 2.5.1 seção 16: passa a usar public.pricing_signature_providers_list()
+// em vez de um SELECT direto — a única diferença é que essa função também
+// traz "último teste" (colunas novas em signature_providers) e "último
+// evento" (derivado de signature_events via LATERAL join, nunca uma coluna
+// redundante) — ver migration 20260920090100.
 router.get('/providers', async (req, res) => {
   const supabase = clientForRequest(req.userJwt);
-  const { data, error } = await supabase.from('signature_providers').select(PROVIDER_FIELDS_ADMIN).order('papel');
+  const { data, error } = await supabase.rpc('pricing_signature_providers_list');
   if (error) return handleError(res, error);
   return res.json(data);
 });
@@ -111,6 +130,42 @@ router.patch('/providers/:id', async (req, res) => {
   if (error) return handleError(res, error);
   if (!data) return res.status(404).json({ error: `Provedor ${req.params.id} não encontrado.` });
   return res.json(data);
+});
+
+// POST /api/signatures/providers/:id/test-connection — seção 18 ("TESTAR
+// CONEXÃO"). Nunca expõe secret na resposta (só o diagnóstico do provider —
+// ver testConnection() em api/lib/signatureProvider.js); grava o resultado em
+// ultimo_teste_em/status/mensagem para a tela mostrar "Último teste" mesmo
+// depois de recarregar a página, e loga um evento semântico de auditoria.
+router.post('/providers/:id/test-connection', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data: providerRow, error: providerError } = await supabase.from('signature_providers').select('*').eq('id', req.params.id).maybeSingle();
+  if (providerError) return handleError(res, providerError);
+  if (!providerRow) return res.status(404).json({ error: `Provedor ${req.params.id} não encontrado.` });
+
+  let resultado;
+  try {
+    const provider = buildProvider(providerRow);
+    resultado = await provider.testConnection();
+  } catch (err) {
+    resultado = { ok: false, mensagem: err.message };
+  }
+
+  const patch = {
+    ultimo_teste_em: new Date().toISOString(),
+    ultimo_teste_status: resultado.ok ? 'OK' : 'FALHA',
+    ultimo_teste_mensagem: resultado.mensagem,
+  };
+  // signature_providers_write (RLS) já restringe UPDATE a ADMINISTRADOR/
+  // DIRETOR (seção 6) — nunca duplicado aqui em código. Se quem chamou não
+  // tem esse perfil, a UPDATE afeta 0 linhas (sem erro) e o diagnóstico
+  // ainda assim é devolvido, só com o aviso explícito de que não foi salvo.
+  const { data: saved } = await supabase.from('signature_providers').update(patch).eq('id', req.params.id).select('id').maybeSingle();
+  await logSemanticEventBestEffort(supabase, {
+    p_entidade: 'signature_providers', p_entidade_id: req.params.id, p_acao: 'SIGNATURE_TEST_CONNECTION', p_motivo: resultado.mensagem,
+  });
+
+  return res.json({ ...resultado, ...patch, persistido: !!saved });
 });
 
 // ============================================================================

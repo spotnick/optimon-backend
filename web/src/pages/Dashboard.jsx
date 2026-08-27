@@ -15,12 +15,26 @@ function Kpi({ label, value, sub }) {
 export default function Dashboard() {
   const [cities, setCities] = useState(null);
   const [error, setError] = useState(null);
+  const [resumo, setResumo] = useState(null);
+  const [usuariosPendentes, setUsuariosPendentes] = useState(null);
 
   useEffect(() => {
     api.cities
       .list()
       .then(setCities)
       .catch((err) => setError(err.message));
+    // Fase 2.5.1 seção 30 — indicadores comerciais/assinatura/usuários no
+    // dashboard principal. Nunca bloqueia o dashboard se falhar (ex.: perfil
+    // sem RLS pra alguma agregação) — cada card fica "—" nesse caso.
+    api.contracts.dashboard().then(setResumo).catch(() => setResumo(null));
+    // "Convite pendente" só é conhecido quando a Auth Admin API está
+    // configurada E quem está olhando é ADMINISTRADOR (ver api/routes/
+    // users.js) — para qualquer outro caso, status_auth vem null em toda
+    // linha e o card mostra "—" honestamente, em vez de inventar um número.
+    api.users.list().then((list) => {
+      const withStatus = list.filter((u) => u.status_auth);
+      setUsuariosPendentes(withStatus.length > 0 ? withStatus.filter((u) => u.status_auth === 'CONVITE_PENDENTE').length : null);
+    }).catch(() => setUsuariosPendentes(null));
   }, []);
 
   if (error) return <div className="page"><div className="error-banner">{error}</div></div>;
@@ -51,6 +65,18 @@ export default function Dashboard() {
         <Kpi label="Capacidade máxima" value={`${totals.capacidade.toLocaleString('pt-BR')} clientes`} />
         <Kpi label="Clientes ativos" value={totals.ativos.toLocaleString('pt-BR')} sub={`${((totals.ativos / (totals.capacidade || 1)) * 100).toFixed(1)}% de ocupação`} />
         <Kpi label="Revenue Share padrão" value="12%" sub="configurável por contrato" />
+      </div>
+
+      <h2 className="section-title">Comercial, assinaturas e usuários</h2>
+      <div className="card-grid" style={{ marginBottom: 28 }}>
+        <Kpi label="Contratos ativos" value={resumo ? resumo.contratos_ativos : '—'} />
+        <Kpi label="Propostas pendentes" value={resumo ? resumo.propostas_pendentes : '—'} sub="aguardando aprovação ou assinatura" />
+        <Kpi label="Assinaturas pendentes" value={resumo ? resumo.assinaturas_pendentes : '—'} sub="envelopes em andamento" />
+        <Kpi label="Contratos pendentes" value={resumo ? resumo.contratos_pendentes : '—'} sub="aguardando assinatura" />
+        <Kpi label="Reajustes pendentes" value={resumo ? resumo.reajustes_pendentes : '—'} />
+        <Kpi label="Alertas não resolvidos" value={resumo ? resumo.alertas_nao_resolvidos : '—'} />
+        <Kpi label="Proponentes ativos" value={resumo ? resumo.proponentes_ativos : '—'} />
+        <Kpi label="Usuários ativos" value={resumo ? resumo.usuarios_ativos : '—'} sub={usuariosPendentes !== null ? `${usuariosPendentes} com convite pendente` : undefined} />
       </div>
 
       <h2 className="section-title">Cidades</h2>

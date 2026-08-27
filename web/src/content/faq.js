@@ -1,6 +1,33 @@
 // OptiMon — Fase 2.4 (seção 2): Perguntas frequentes da Central de Ajuda.
+// Fase 2.5.1 (seção 29): acrescenta as perguntas sobre o novo fluxo de usuário sem
+// UUID, onde a senha fica guardada, proponente/exclusão lógica, alteração de contrato
+// e o que significa uma assinatura validada.
 
 export const FAQ = [
+  {
+    pergunta: 'Preciso cadastrar o UUID do usuário?',
+    resposta: 'Não. O identificador de autenticação (UUID) é sempre gerado automaticamente pelo Supabase Auth no momento em que você clica em "Criar Usuário" — o administrador nunca precisa conhecer, copiar ou digitar esse valor em nenhuma tela do OptiMon.',
+  },
+  {
+    pergunta: 'Onde a senha fica armazenada?',
+    resposta: 'A senha nunca é armazenada em nenhuma tabela do OptiMon. Ela fica exclusivamente no Supabase Auth, o serviço de autenticação — cada usuário define a própria senha pelo link do convite (ou de redefinição), e só ele a conhece.',
+  },
+  {
+    pergunta: 'O OptiMon guarda minha senha?',
+    resposta: 'Não. Nenhuma senha é lida, guardada ou processada pelo OptiMon em nenhum momento — a autenticação acontece sempre direto contra o Supabase Auth.',
+  },
+  {
+    pergunta: 'O que acontece se o contrato for alterado?',
+    resposta: 'Um contrato ativo é bloqueado para edição direta. Qualquer mudança de condição (infraestrutura, prazo, condição comercial) passa a exigir um aditivo formal, com seu próprio ciclo de aprovação e assinatura, preservando a versão anterior. Uma alteração de valor por reajuste também nunca sobrescreve o histórico — sempre cria um novo evento.',
+  },
+  {
+    pergunta: 'Posso excluir um proponente?',
+    resposta: 'Não fisicamente. O OptiMon nunca faz exclusão física de proponente — "Desativar" é sempre uma exclusão lógica, com motivo obrigatório: o registro some da listagem padrão de ativos, mas continua existindo (visível pelo filtro "Todos"/"Inativos") e pode ser reativado depois por quem tem permissão.',
+  },
+  {
+    pergunta: 'O que significa assinatura validada?',
+    resposta: 'Significa que o OptiMon confirmou, junto ao provedor de assinatura, que o documento assinado é íntegro e que a assinatura de cada signatário é autêntica — não é o mesmo que "assinado": um envelope apenas assinado ainda não libera a ativação do contrato, só um envelope validado libera.',
+  },
   {
     pergunta: 'Por que não consigo arquivar um POP/segmento/cabo?',
     resposta: 'O arquivamento é bloqueado quando o item tem alguma dependência ainda ativa (por exemplo, um segmento com cabos ativos, ou um cabo com fibras ocupadas). A mensagem de erro explica exatamente qual dependência precisa ser resolvida primeiro.',
