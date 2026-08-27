@@ -378,6 +378,33 @@ else
 fi
 
 echo "=============================================="
+echo "TESTE — URL de redirecionamento do convite (bug real reportado pelo usuário)"
+echo "=============================================="
+# Regressão do bug real (correção pós-entrega): o link de convite/redefinição de senha
+# levava a pessoa para localhost em vez da URL real publicada, porque
+# frontendRedirectUrl() sempre pegava a PRIMEIRA origem de CORS_ALLOWED_ORIGINS — e
+# CORS_ALLOWED_ORIGINS quase sempre lista localhost primeiro (é o próprio padrão em
+# api/.env.example). Este teste roda a função de verdade (não reimplementa a lógica),
+# nos 3 cenários que importam: PUBLIC_APP_URL explícito sempre vence; sem ele, a
+# primeira origem que NÃO pareça localhost é escolhida; e o resultado sempre aponta para
+# /definir-senha (a página nova que recebe esse retorno), nunca para /login.
+REDIRECT_OUT=$(cd api && node -e "
+const { frontendRedirectUrl } = require('./routes/users.js');
+process.env.PUBLIC_APP_URL = '';
+process.env.CORS_ALLOWED_ORIGINS = 'http://localhost:5173,https://optimon-prod.vercel.app';
+const semExplicita = frontendRedirectUrl();
+process.env.PUBLIC_APP_URL = 'https://optimon-prod.vercel.app';
+const comExplicita = frontendRedirectUrl();
+console.log(JSON.stringify({ semExplicita, comExplicita }));
+" 2>/dev/null)
+EXPECTED='{"semExplicita":"https://optimon-prod.vercel.app/definir-senha","comExplicita":"https://optimon-prod.vercel.app/definir-senha"}'
+if [ "$REDIRECT_OUT" = "$EXPECTED" ]; then
+  pass "TESTE-redirect frontendRedirectUrl() nunca escolhe localhost quando existe uma origem real na lista, e sempre aponta para /definir-senha"
+else
+  fail "TESTE-redirect" "esperado=$EXPECTED obtido=$REDIRECT_OUT"
+fi
+
+echo "=============================================="
 echo "RESULTADO FINAL: $PASS PASS / $FAIL FAIL / $SKIP SKIP"
 echo "=============================================="
 if [ $FAIL -gt 0 ]; then

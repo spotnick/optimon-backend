@@ -28,7 +28,7 @@ Essa restrição nunca é só de interface: cada perfil é reforçado por Row-Le
         titulo: 'Criando um usuário — nunca com UUID manual',
         corpo: `Em "Usuários" → "Criar Usuário", informe Nome, E-mail, Telefone, CPF, Cargo, Departamento, Perfil e Observações. O administrador nunca precisa conhecer, copiar ou digitar nenhum identificador técnico (UUID) do Supabase — o ID da identidade é sempre gerado automaticamente pelo Supabase Auth no momento da criação, como parte do próprio fluxo de "Criar Usuário".
 
-Ao confirmar, o OptiMon cria a identidade de autenticação e envia um convite por e-mail; a tela mostra "Convite enviado para <e-mail>." A pessoa convidada define sua própria senha ao clicar no link do e-mail — o OptiMon nunca vê, armazena nem tem acesso a essa senha.`,
+Ao confirmar, o OptiMon cria a identidade de autenticação e envia um convite por e-mail; a tela mostra "Convite enviado para <e-mail>." A pessoa convidada clica no link do e-mail e cai direto na tela "Definir senha" do próprio OptiMon, onde escolhe sua senha e já entra no sistema em seguida — o OptiMon nunca vê, armazena nem tem acesso a essa senha. Esse link é sempre construído a partir da URL pública real do OptiMon publicado (variável PUBLIC_APP_URL no backend) — nunca de um endereço de desenvolvimento.`,
       },
       {
         titulo: 'Editando, desativando e reativando usuários',

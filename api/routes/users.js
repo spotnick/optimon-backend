@@ -67,12 +67,35 @@ function handleError(res, error) {
   return res.status(status).json({ error: message });
 }
 
-// URL de redirecionamento pós-convite/redefinição de senha — deriva da
-// primeira origem de CORS_ALLOWED_ORIGINS (a URL real do frontend publicado),
-// nunca uma segunda variável de ambiente redundante.
+// URL de redirecionamento pós-convite/redefinição de senha.
+//
+// BUG REAL reportado pelo usuário (Fase 2.5.1, correção pós-entrega): a primeira versão
+// desta função derivava a URL sempre da PRIMEIRA origem de CORS_ALLOWED_ORIGINS, para
+// evitar uma segunda variável de ambiente redundante. Na prática isso quebrou o convite
+// de verdade — CORS_ALLOWED_ORIGINS quase sempre lista `http://localhost:...` primeiro
+// (é o próprio padrão documentado em api/.env.example, pensado para desenvolvimento
+// local), então todo e-mail de convite/redefinição enviado por um projeto Supabase real
+// redirecionava para localhost, nunca para a URL publicada de verdade — o usuário via o
+// e-mail funcionar, o Supabase autenticar (token válido na URL), e a página seguinte
+// nunca carregar/aparecer certo, porque não existe nenhum frontend rodando em
+// localhost:3000 na máquina de quem recebeu o convite.
+//
+// Corrigido em duas camadas: (1) uma variável de ambiente explícita e única
+// (PUBLIC_APP_URL) para esse propósito específico — sem ambiguidade de "qual das N
+// origens de CORS é a de verdade"; (2) enquanto essa variável não é configurada, o
+// fallback agora prefere a primeira origem de CORS_ALLOWED_ORIGINS que NÃO pareça
+// localhost, em vez de sempre pegar a primeira da lista — nunca mais escolhe
+// silenciosamente um endereço de desenvolvimento para um e-mail real.
 function frontendRedirectUrl() {
-  const first = (process.env.CORS_ALLOWED_ORIGINS || '').split(',')[0]?.trim();
-  return first ? `${first}/login` : undefined;
+  const explicit = (process.env.PUBLIC_APP_URL || '').trim();
+  const origins = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
+  const nonLocal = origins.find((o) => !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o));
+  const base = explicit || nonLocal || origins[0];
+  if (!explicit && base) {
+    // eslint-disable-next-line no-console
+    console.warn(`[optimon-api] PUBLIC_APP_URL não configurado — usando "${base}" (derivado de CORS_ALLOWED_ORIGINS) como URL de redirecionamento de convite/redefinição de senha. Configure PUBLIC_APP_URL explicitamente para evitar ambiguidade.`);
+  }
+  return base ? `${base}/definir-senha` : undefined;
 }
 
 const SELECT_FIELDS = 'id, nome, email, telefone, cpf, cargo, departamento, perfil, ativo, observacoes, criado_em, atualizado_em, ultimo_acesso_em';
@@ -380,3 +403,8 @@ router.post('/me/touch-access', async (req, res) => {
 });
 
 module.exports = router;
+// Exposta só para o teste de regressão do bug real desta correção (ver
+// tests/run_tests_fase251.sh, "TESTE-redirect") — um Router do Express é uma função
+// comum, então anexar uma propriedade nela não afeta `app.use('/api/users', ...)` em
+// nada; nenhuma outra rota importa isto.
+module.exports.frontendRedirectUrl = frontendRedirectUrl;

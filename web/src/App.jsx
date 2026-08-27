@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
+import DefinirSenha from './pages/DefinirSenha';
 import Dashboard from './pages/Dashboard';
 import Cities from './pages/Cities';
 import NewCity from './pages/NewCity';
@@ -25,6 +26,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Destino do redirectTo de convite/redefinição de senha (ver
+          api/routes/users.js:frontendRedirectUrl) — fora de ProtectedRoute de propósito:
+          quem chega aqui só tem a sessão temporária que o próprio link do Supabase Auth
+          gerou, nunca uma senha definida ainda. */}
+      <Route path="/definir-senha" element={<DefinirSenha />} />
       <Route
         element={
           <ProtectedRoute>
