@@ -35,7 +35,16 @@ async function request(path, { method = 'GET', body } = {}) {
     // resposta sem corpo JSON (ex.: erro de rede genérico) — segue com payload null.
   }
 
-  if (!res.ok) {
+  // BUG REAL encontrado em produção (Fase 2.5.1, correção pós-entrega): 207 Multi-Status
+  // está dentro da faixa 200-299, então `res.ok` era true para ele — POST
+  // /api/users/invite usa 207 propositalmente para sinalizar sucesso PARCIAL (identidade
+  // criada no Supabase Auth, mas o INSERT em public.usuarios falhou), mas como isso nunca
+  // era tratado como erro aqui, a tela de Usuários exibia sempre a mensagem de sucesso
+  // padrão ("Convite enviado para <e-mail>.") — o admin nunca via o aviso real, e o
+  // usuário nunca aparecia na listagem porque a linha em public.usuarios nunca existiu.
+  // 207 é usado hoje só para esse caso — tratado aqui como erro para qualquer uso futuro
+  // também nunca ser engolido silenciosamente.
+  if (!res.ok || res.status === 207) {
     throw new ApiError(payload?.error || `Erro ${res.status} ao chamar ${path}.`, res.status);
   }
   return payload;
