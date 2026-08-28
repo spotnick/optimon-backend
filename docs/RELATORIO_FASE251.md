@@ -13,6 +13,17 @@ Depois da entrega original desta fase, o usuário testou o convite contra um pro
 
 Adicionado `TESTE-redirect` em `tests/run_tests_fase251.sh` — exercita `frontendRedirectUrl()` de verdade (a função foi exportada só para isso) nos 3 cenários que importam, para este bug específico nunca mais voltar sem ser pego pela regressão. Manual do Administrador atualizado para descrever o fluxo correto (clica no link → cai em "Definir senha" → já entra no sistema). Suíte completa reexecutada depois da correção: **26 PASS / 0 FAIL / 7 SKIP**, 0 regressão.
 
+### Addendum 2 — a causa raiz final não estava no código: "Site URL"/"Redirect URLs" do próprio projeto Supabase
+
+Mesmo depois da correção acima implantada (`PUBLIC_APP_URL` configurado no Railway, frontend com `/definir-senha` publicado), o usuário reportou que um link **recém-gerado** (confirmado pelo `iat` do JWT, poucos minutos antes do teste) continuava chegando em `http://localhost:3000`. Isso não é um bug de código — é um comportamento documentado do próprio Supabase Auth: `inviteUserByEmail`/`resetPasswordForEmail` só respeitam o `redirectTo` enviado pela API **se essa URL estiver na lista de permitidos do projeto** (Authentication → URL Configuration → Redirect URLs); se não estiver, o Supabase ignora silenciosamente o `redirectTo` recebido e usa a "Site URL" configurada no painel — que é `http://localhost:3000` por padrão em todo projeto novo do Supabase, sem nenhum aviso de que o valor pedido foi rejeitado. Nenhuma fase anterior deste projeto tinha documentado esse passo de configuração do painel do Supabase (distinto de qualquer variável de ambiente do Railway/Vercel), então ele nunca tinha sido feito.
+
+**Correção — configuração manual no painel do Supabase, não no repositório:**
+1. Authentication → URL Configuration → **Site URL**: trocar `http://localhost:3000` pela URL real do frontend publicado (ex.: `https://seu-projeto.vercel.app`).
+2. Authentication → URL Configuration → **Redirect URLs**: adicionar `https://seu-projeto.vercel.app/**` (coringa cobrindo `/definir-senha` e `/login`).
+3. Nenhum redeploy é necessário — a mudança vale para o próximo e-mail gerado; o link já recebido antes da mudança continua com a URL antiga (e, de qualquer forma, é de uso único).
+
+Este passo foi adicionado ao runbook de deploy desta fase (abaixo) para nunca mais faltar num projeto novo.
+
 ## 1. Problemas encontrados
 
 1. **Bug crítico relatado pelo usuário (corrigido)**: em "Usuários" → "Novo", o administrador precisava digitar manualmente um UUID (`ID (auth.users.id)`) para criar um usuário, o que causava `invalid input syntax for type uuid: "nadia.cussolin.2026"` quando alguém digitava um nome em vez de um UUID. Causa raiz: a Fase 2.5 criou o backend de usuários assumindo que a identidade em `auth.users` já existiria antes da chamada a `POST /api/users` — não havia nenhuma rota que criasse essa identidade. Corrigido criando o fluxo `POST /api/users/invite`, que cria a identidade via Supabase Auth Admin API e devolve o UUID gerado — o campo de UUID manual foi removido da tela.
@@ -142,5 +153,7 @@ Provedor mock de homologação (`MockHomologacaoProvider`), o único autorizado 
 
 1. Aplicar as 2 migrations novas desta fase, na ordem, junto com todas as anteriores (nenhuma foi alterada).
 2. Configurar `SUPABASE_SERVICE_ROLE_KEY` **só no backend** (Railway/ambiente do `api/`), nunca no Vercel do frontend — ver o bloco de 4 regras em `api/.env.example`.
-3. Confirmar que o e-mail de convite do Supabase Auth está configurado (template + remetente) antes de usar "Criar Usuário" em produção.
-4. Rodar `supabase/storage_setup_fase25.sql` manualmente (bucket privado `documentos` + políticas), como já documentado desde a Fase 2.5.
+3. Configurar `PUBLIC_APP_URL` no backend (Railway) com a URL real do frontend publicado (ex.: `https://seu-projeto.vercel.app`, sem barra no final).
+4. **No painel do Supabase** (Authentication → URL Configuration — configuração do projeto, não uma variável de ambiente do Railway/Vercel): definir **Site URL** como a URL real do frontend, e adicionar essa mesma URL com coringa (`https://seu-projeto.vercel.app/**`) em **Redirect URLs**. Sem este passo, o Supabase ignora silenciosamente o `redirectTo` enviado pela API e volta a usar `http://localhost:3000` (o padrão de todo projeto novo) nos e-mails de convite/redefinição — ver Addendum 2 acima, causa raiz real de um bug reportado pelo usuário depois da entrega original.
+5. Confirmar que o e-mail de convite do Supabase Auth está configurado (template + remetente) antes de usar "Criar Usuário" em produção — e que o projeto não está no limite de envio do servidor de e-mail compartilhado do Supabase (poucos envios por hora; para uso real, configurar SMTP próprio em Authentication → Settings → SMTP Settings).
+6. Rodar `supabase/storage_setup_fase25.sql` manualmente (bucket privado `documentos` + políticas), como já documentado desde a Fase 2.5.
