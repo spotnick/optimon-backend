@@ -14,6 +14,7 @@ import ProposalDetail from './pages/ProposalDetail';
 import Audit from './pages/Audit';
 import Help from './pages/Help';
 import Users from './pages/Users';
+import UsersHealth from './pages/UsersHealth';
 import Partners from './pages/Partners';
 import PartnerDetail from './pages/PartnerDetail';
 import Contracts from './pages/Contracts';
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="/assinaturas" element={<Signatures />} />
         <Route path="/assinaturas/:id" element={<SignatureDetail />} />
         <Route path="/usuarios" element={<Users />} />
+        <Route path="/usuarios/saude" element={<UsersHealth />} />
         <Route path="/configuracoes/assinatura" element={<SignatureSettings />} />
         <Route path="/auditoria" element={<Audit />} />
         <Route path="/ajuda" element={<Help />} />

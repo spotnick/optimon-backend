@@ -25,6 +25,16 @@
 //
 // Continua verdade, sem exceção: NUNCA senha própria é armazenada em
 // public.usuarios — autenticação é sempre 100% Supabase Auth (seção 3).
+//
+// FASE 2.5.3 (CORREÇÃO DEFINITIVA — USUÁRIOS AUTH x public.usuarios, ver
+// docs/RELATORIO_FASE253.md): a causa raiz real do "usuário criado em Auth
+// mas nunca aparece em Usuários" foi diagnosticada e corrigida
+// (emptyToNull() abaixo), e o fluxo de /invite foi redesenhado com uma
+// máquina de estados explícita (A/B/C/D — ver o comentário da rota
+// POST /invite) mais rollback controlado (nunca deleta uma identidade Auth
+// pré-existente, só uma recém-criada na mesma operação) e um caminho de
+// recuperação dedicado (POST /reconcile) para quando um órfão já existe.
+// GET /health expõe o mesmo diagnóstico de integridade sem alterar nada.
 
 const express = require('express');
 const { clientForRequest, anonClient } = require('../lib/supabaseClient');
@@ -46,6 +56,32 @@ async function logSemanticEventBestEffort(supabase, params) {
   } catch (_err) {
     // intencional: log de auditoria nunca bloqueia a ação principal.
   }
+}
+
+// BUG REAL diagnosticado na Fase 2.5.3 (docs/RELATORIO_FASE253.md, item de
+// causa raiz): o formulário "+ Novo Usuário" do frontend inicializa CPF (e os
+// demais campos opcionais) como string vazia (''), nunca `undefined`/`null` —
+// é assim que um <input> controlado do React se comporta quando o campo é
+// deixado em branco. `cpf ?? null` (nullish coalescing) NÃO converte '' para
+// null — só converte `null`/`undefined` — então uma string vazia seguia
+// direto para o INSERT em public.usuarios. A tabela tem
+// `constraint usuarios_cpf_formato check (cpf is null or cpf ~ '^[0-9]{11}$')`
+// (migration 20260913090000), e '' não casa com o regex nem é null: o INSERT
+// sempre falhava com "violates check constraint usuarios_cpf_formato" —
+// reproduzido e confirmado diretamente contra o schema real nesta fase (ver
+// docs/RELATORIO_FASE253.md) — DEPOIS que a identidade já tinha sido criada
+// em auth.users e o e-mail de convite já tinha sido enviado, deixando um
+// usuário órfão (existe em Auth, nunca aparece em Usuários) e tornando
+// qualquer nova tentativa de convite um "already been registered" sem saída.
+// Corrigido normalizando toda string vazia/só-espaços para null antes do
+// INSERT — não só CPF: os demais campos de texto opcionais (telefone/cargo/
+// departamento/observacoes) recebem o mesmo tratamento por consistência,
+// mesmo não tendo CHECK constraint próprio, para nunca gravar '' onde o
+// significado é "não informado".
+function emptyToNull(value) {
+  if (typeof value !== 'string') return value ?? null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 function handleError(res, error) {
@@ -146,7 +182,7 @@ async function assertAdmin(req) {
 // o frontend cai de volta para o status derivado só de `usuarios.ativo`
 // (ATIVO/INATIVO) — nunca quebra, nunca esconde a limitação.
 router.get('/', async (req, res) => {
-  const { perfil, ativo, q } = req.query;
+  const { perfil, ativo, q, include_orphans } = req.query;
   const supabase = clientForRequest(req.userJwt);
   let query = supabase.from('usuarios').select(SELECT_FIELDS).is('removido_em', null).order('nome');
   if (perfil) query = query.eq('perfil', perfil);
@@ -158,11 +194,15 @@ router.get('/', async (req, res) => {
   if (error) return handleError(res, error);
 
   let statusById = new Map();
+  let isAdminCaller = false;
+  let authUsers = [];
   if (adminAuthAvailable()) {
     try {
       await assertAdmin(req);
+      isAdminCaller = true;
       const { data: authList, error: authError } = await adminAuth().listUsers({ page: 1, perPage: 200 });
       if (!authError && authList?.users) {
+        authUsers = authList.users;
         for (const u of authList.users) {
           const banned = u.banned_until && new Date(u.banned_until).getTime() > Date.now();
           const status = banned ? 'BLOQUEADO' : (u.email_confirmed_at ? 'ATIVO' : 'CONVITE_PENDENTE');
@@ -180,7 +220,93 @@ router.get('/', async (req, res) => {
     ...u,
     status_auth: u.ativo === false ? 'INATIVO' : (statusById.get(u.id) || null),
   }));
-  return res.json(enriched);
+
+  // Fase 2.5.3 (seção 6/18): ?include_orphans=true acrescenta linhas
+  // sintéticas para identidades Auth órfãs (Estado C — ver seção 5/18), só
+  // para quem já recebeu a lista enriquecida (ADMINISTRADOR + Admin API
+  // disponível). Nunca inventa um `id` de public.usuarios para essas linhas
+  // (não existe) — usa `auth_user_id` e `id: null`, para que o frontend saiba
+  // que a única ação possível é "Recuperar Perfil" (POST /api/users/reconcile),
+  // nunca Editar/Desativar (que dependem de um id em usuarios).
+  let rows = enriched;
+  if (include_orphans === 'true' && isAdminCaller) {
+    const profileIds = new Set((data || []).map((u) => u.id));
+    const orphanRows = authUsers
+      .filter((u) => !profileIds.has(u.id))
+      .map((u) => ({
+        id: null,
+        auth_user_id: u.id,
+        nome: null,
+        email: u.email,
+        cargo: null,
+        perfil: null,
+        ativo: null,
+        status_auth: 'ORFAO_SEM_PERFIL',
+        criado_em: u.created_at,
+        ultimo_acesso_em: null,
+      }));
+    rows = enriched.concat(orphanRows);
+  }
+
+  return res.json(rows);
+});
+
+// GET /api/users/health — Fase 2.5.3 (seção 7/18): diagnóstico de integridade
+// entre auth.users e public.usuarios, sem alterar nada. Só ADMINISTRADOR
+// (mesma exceção da Auth Admin API — RLS não alcança auth.users). Serve tanto
+// o painel /usuarios/saude quanto o indicador de integridade em Usuários.
+//
+// BUG REAL encontrado nos testes desta fase (TESTE-06, tests/run_tests_fase253.sh):
+// esta rota precisa vir ANTES de "GET /api/users/:id" abaixo — o Express
+// casa rotas na ORDEM DE REGISTRO, então "/health" batia em ":id" primeiro
+// (id="health"), e o Postgres rejeitava com "invalid input syntax for type
+// uuid: \"health\"" (409, handleError()). O mesmo cuidado já vale para
+// qualquer rota GET nova de segmento fixo sob /api/users — sempre antes de
+// ":id".
+router.get('/health', async (req, res) => {
+  try {
+    await assertAdmin(req);
+  } catch (err) {
+    return handleError(res, err);
+  }
+
+  const supabase = clientForRequest(req.userJwt);
+  const { data: profiles, error: profilesError } = await supabase
+    .from('usuarios').select('id, email, nome, criado_em').is('removido_em', null);
+  if (profilesError) return handleError(res, profilesError);
+
+  const authAvailable = adminAuthAvailable();
+  let authUsers = [];
+  let authCheckError = null;
+  if (authAvailable) {
+    try {
+      authUsers = await listAllAuthUsers();
+    } catch (err) {
+      authCheckError = err.message;
+    }
+  }
+
+  const profileIds = new Set((profiles || []).map((p) => p.id));
+  const authIds = new Set(authUsers.map((u) => u.id));
+  const podeVerificar = authAvailable && !authCheckError;
+
+  const identidadesAuthOrfas = podeVerificar
+    ? authUsers.filter((u) => !profileIds.has(u.id)).map((u) => ({ auth_user_id: u.id, email: u.email, criado_em: u.created_at }))
+    : [];
+  const perfisSemAuth = podeVerificar
+    ? (profiles || []).filter((p) => !authIds.has(p.id)).map((p) => ({ id: p.id, email: p.email, nome: p.nome, criado_em: p.criado_em }))
+    : [];
+
+  return res.json({
+    verificado_em: new Date().toISOString(),
+    auth_admin_disponivel: authAvailable,
+    auth_check_erro: authCheckError,
+    total_perfis: (profiles || []).length,
+    total_auth: podeVerificar ? authUsers.length : null,
+    identidades_auth_orfas: identidadesAuthOrfas, // Estado C — ver seção 5/18
+    perfis_sem_auth: perfisSemAuth, // Estado D — ver seção 5/18
+    integro: podeVerificar ? (identidadesAuthOrfas.length === 0 && perfisSemAuth.length === 0) : null,
+  });
 });
 
 // GET /api/users/:id
@@ -198,16 +324,94 @@ router.get('/:id', async (req, res) => {
 async function completeProfile(supabase, { id, nome, email, telefone, cpf, cargo, departamento, perfil, observacoes }) {
   return supabase
     .from('usuarios')
-    .insert({ id, nome, email, telefone: telefone ?? null, cpf: cpf ?? null, cargo: cargo ?? null, departamento: departamento ?? null, perfil, observacoes: observacoes ?? null })
+    .insert({
+      id,
+      nome,
+      email,
+      telefone: emptyToNull(telefone),
+      cpf: emptyToNull(cpf),
+      cargo: emptyToNull(cargo),
+      departamento: emptyToNull(departamento),
+      perfil,
+      observacoes: emptyToNull(observacoes),
+    })
     .select(SELECT_FIELDS)
     .single();
 }
 
-// POST /api/users/invite — Fase 2.5.1, o fluxo novo (seções 1-5): nome/e-mail/
-// telefone/cpf/cargo/departamento/perfil/observações → Supabase Auth cria a
-// identidade e envia o e-mail de convite → perfil completado em
-// public.usuarios. Nunca pede UUID. Só ADMINISTRADOR (checado aqui, porque
-// RLS não alcança a Auth Admin API — ver cabeçalho do arquivo).
+// Fase 2.5.3 (seção 3/18, "REGRA 1:1"): a Auth Admin API do Supabase não tem
+// um "getUserByEmail" direto (nem em `adminAuth()`, que expõe só o namespace
+// `auth.admin` — ver api/lib/supabaseAdmin.js) — só `listUsers` paginado.
+// Usado pelo pré-check de idempotência (Estados A/B/C/D) antes de qualquer
+// convite/reconciliação, e por GET /api/users/health para o diagnóstico
+// completo. Paginação com teto de segurança (25 páginas de 200 = 5000
+// usuários) — nunca um loop infinito por página vazia mal comportada.
+async function findAuthUserByEmail(email) {
+  if (!adminAuthAvailable()) return null;
+  const target = email.trim().toLowerCase();
+  const perPage = 200;
+  for (let page = 1; page <= 25; page += 1) {
+    const { data, error } = await adminAuth().listUsers({ page, perPage });
+    if (error) throw error;
+    const users = data?.users || [];
+    const found = users.find((u) => (u.email || '').toLowerCase() === target);
+    if (found) return found;
+    if (users.length < perPage) return null;
+  }
+  return null;
+}
+
+// Lista todas as identidades de auth.users (mesmo teto/paginação de
+// findAuthUserByEmail acima) — usado por GET /api/users/health e por
+// GET /api/users?include_orphans=true para achar Estado C (Auth sem perfil).
+async function listAllAuthUsers() {
+  if (!adminAuthAvailable()) return [];
+  const perPage = 200;
+  let all = [];
+  for (let page = 1; page <= 25; page += 1) {
+    const { data, error } = await adminAuth().listUsers({ page, perPage });
+    if (error) throw error;
+    const users = data?.users || [];
+    all = all.concat(users);
+    if (users.length < perPage) break;
+  }
+  return all;
+}
+
+// POST /api/users/invite — Fase 2.5.1 criou o fluxo (nome/e-mail/telefone/
+// cpf/cargo/departamento/perfil/observações → Supabase Auth cria a identidade
+// e envia o e-mail de convite → perfil completado em public.usuarios, tudo
+// numa chamada, nunca pedindo UUID). A Fase 2.5.3 REDESENHA o que acontece
+// quando algo dá errado no meio do caminho — ver
+// docs/RELATORIO_FASE253.md e a seção 9/18 do prompt-mestre desta fase:
+//
+// BUG REAL que motivou o redesenho: a versão anterior devolvia HTTP 207
+// quando o INSERT em public.usuarios falhava depois da identidade Auth já
+// criada — o 207 (Multi-Status, ainda um 2xx) era lido como sucesso pelo
+// wrapper HTTP genérico do frontend (`res.ok` é true para qualquer 2xx),
+// então o administrador via "Convite enviado" numa caixa verde para um
+// usuário que nunca apareceu no painel — e uma nova tentativa com o mesmo
+// e-mail batia direto em "A user with this email address has already been
+// registered", sem nenhum caminho de recuperação. A causa raiz REAL do
+// INSERT falhar (diagnosticada nesta fase, não assumida — ver
+// docs/RELATORIO_FASE253.md) era o formulário mandando '' em vez de null
+// para CPF; já corrigida em completeProfile()/emptyToNull() acima. Mas o
+// buraco estrutural continua existindo para QUALQUER outra causa de falha no
+// INSERT (rede, RLS mal configurada em outro ambiente, etc.) — por isso o
+// redesenho abaixo, e não só o conserto do CPF.
+//
+// Máquina de estados (seção 5/18, REGRA 1:1 entre auth.users e
+// public.usuarios) — verificada ANTES de tentar qualquer coisa:
+//   A) nem Auth nem perfil existem            → caminho normal (cria os dois).
+//   B) Auth E perfil já existem                → 409, nunca recria.
+//   C) só Auth existe (perfil ausente — órfão) → 409 com orientação explícita
+//      para usar POST /api/users/reconcile (nunca reconvida — reconvidar um
+//      e-mail que já existe em auth.users sempre falha com
+//      "already been registered" no próprio Supabase, então nem tenta).
+//   D) só o perfil existe (sem Auth correspondente — inconsistência crítica,
+//      não deveria ser possível com a REGRA 1:1, mas o diagnóstico verifica
+//      mesmo assim) → 409, bloqueia criação automática, pede recuperação
+//      administrativa (não há "auth_user_id" correto para recriar sozinho).
 router.post('/invite', async (req, res) => {
   const { nome, email, telefone, cpf, cargo, departamento, perfil, observacoes } = req.body || {};
   if (!nome || !email || !perfil) {
@@ -219,9 +423,65 @@ router.post('/invite', async (req, res) => {
     return handleError(res, err);
   }
 
+  const supabase = clientForRequest(req.userJwt);
+  const emailNorm = email.trim();
+
+  // Pré-checagem do estado (seção 5/18) — nunca tenta criar nada antes de
+  // saber em qual dos 4 estados o e-mail já está.
+  const { data: existingProfile, error: profileLookupError } = await supabase
+    .from('usuarios').select(SELECT_FIELDS).ilike('email', emailNorm).is('removido_em', null).maybeSingle();
+  if (profileLookupError) return handleError(res, profileLookupError);
+
+  let existingAuth = null;
+  try {
+    existingAuth = await findAuthUserByEmail(emailNorm);
+  } catch (err) {
+    return handleError(res, err);
+  }
+
+  if (existingProfile && existingAuth) {
+    // Estado B — já 100% cadastrado. Nunca recria.
+    return res.status(409).json({
+      error: `Já existe um usuário cadastrado com o e-mail ${emailNorm}.`,
+      state: 'B_JA_REGISTRADO',
+    });
+  }
+  if (existingProfile && !existingAuth) {
+    // Estado D — inconsistência crítica (não deveria acontecer com a REGRA
+    // 1:1, mas o diagnóstico verifica em vez de assumir). Nunca cria uma
+    // identidade Auth nova com UUID próprio para "consertar" — UUID de
+    // usuarios sempre vem do Supabase Auth (seção 3/18).
+    await logSemanticEventBestEffort(supabase, {
+      p_entidade: 'usuarios', p_entidade_id: existingProfile.id, p_acao: 'USER_AUTH_ORPHAN',
+      p_motivo: `Estado D: perfil ${emailNorm} (id=${existingProfile.id}) existe em public.usuarios sem identidade correspondente em auth.users.`,
+    });
+    return res.status(409).json({
+      error: `Inconsistência crítica: existe um cadastro em Usuários para ${emailNorm} sem identidade correspondente no Supabase Auth. Não é possível recriar automaticamente — contate um administrador de infraestrutura (ver GET /api/users/health).`,
+      state: 'D_PERFIL_ORFAO',
+      profile_id: existingProfile.id,
+    });
+  }
+  if (!existingProfile && existingAuth) {
+    // Estado C — exatamente o bug reportado nesta fase: identidade Auth
+    // criada (e-mail de convite já enviado de verdade), perfil nunca
+    // completado. Reenviar o convite falharia com "already been registered"
+    // — em vez disso, orienta o caminho de recuperação que NÃO recria a
+    // identidade nem reenvia e-mail.
+    return res.status(409).json({
+      error: `Já existe uma identidade de autenticação para ${emailNorm} sem cadastro completo em Usuários (falha anterior de cadastro). Use "Recuperar Perfil" (POST /api/users/reconcile) para completar o cadastro sem reenviar o convite.`,
+      state: 'C_AUTH_ORFAO',
+      auth_user_id: existingAuth.id,
+    });
+  }
+
+  // Estado A — caminho normal.
+  await logSemanticEventBestEffort(supabase, {
+    p_entidade: 'usuarios', p_entidade_id: null, p_acao: 'USER_INVITE_STARTED', p_motivo: emailNorm,
+  });
+
   let authUser;
   try {
-    const { data, error } = await adminAuth().inviteUserByEmail(email, {
+    const { data, error } = await adminAuth().inviteUserByEmail(emailNorm, {
       data: { nome },
       redirectTo: frontendRedirectUrl(),
     });
@@ -230,36 +490,144 @@ router.post('/invite', async (req, res) => {
   } catch (err) {
     // Registra a tentativa falha (ex.: e-mail já cadastrado) — nunca some
     // sem deixar rastro na auditoria (seção 34).
-    try {
-      const supabase = clientForRequest(req.userJwt);
-      await supabase.rpc('pricing_log_semantic_event', {
-        p_entidade: 'usuarios', p_entidade_id: null, p_acao: 'USER_INVITE_FAILED', p_motivo: `${email}: ${err.message}`,
-      });
-    } catch (_logErr) { /* nunca deixa a auditoria derrubar a resposta de erro real */ }
+    await logSemanticEventBestEffort(supabase, {
+      p_entidade: 'usuarios', p_entidade_id: null, p_acao: 'USER_INVITE_FAILED', p_motivo: `${emailNorm}: ${err.message}`,
+    });
     return handleError(res, err);
   }
 
-  const supabase = clientForRequest(req.userJwt);
-  const { data: profile, error: profileError } = await completeProfile(supabase, {
-    id: authUser.id, nome, email, telefone, cpf, cargo, departamento, perfil, observacoes,
+  await logSemanticEventBestEffort(supabase, {
+    p_entidade: 'usuarios', p_entidade_id: authUser.id, p_acao: 'USER_AUTH_CREATED', p_motivo: emailNorm,
   });
+
+  const { data: profile, error: profileError } = await completeProfile(supabase, {
+    id: authUser.id, nome, email: emailNorm, telefone, cpf, cargo, departamento, perfil, observacoes,
+  });
+
   if (profileError) {
-    // A identidade em auth.users já foi criada e o e-mail já saiu — não dá
-    // para desfazer isso (e não deveríamos: o convite é legítimo). Devolve um
-    // erro claro com o id gerado, para que POST /api/users (o caminho de
-    // recuperação abaixo) complete manualmente se este passo falhar por
-    // algum motivo transitório.
-    return res.status(207).json({
-      error: `Identidade criada no Supabase Auth (id=${authUser.id}) e convite enviado, mas o cadastro em public.usuarios falhou: ${profileError.message}. Repita usando POST /api/users com este id.`,
+    // DIAGNÓSTICO SEM MÁSCARA (seção 6/18): captura code/message/details/hint
+    // reais do Postgres/PostgREST no log estruturado do Railway, sob a tag
+    // USER_INVITE_PROFILE — nunca senha/token/service_role_key/credenciais
+    // (nenhum desses três dados aparece nesta linha).
+    // eslint-disable-next-line no-console
+    console.error(
+      `[optimon-api][USER_INVITE_PROFILE] INSERT em public.usuarios falhou — `
+      + `auth_user_id=${authUser.id} email=${emailNorm} `
+      + `code=${profileError.code || '?'} message=${profileError.message || '?'} `
+      + `details=${profileError.details || '-'} hint=${profileError.hint || '-'}`,
+    );
+
+    // ROLLBACK CONTROLADO (seção 8/18): a identidade Auth só pode ser apagada
+    // aqui porque foi criada NESTA MESMA operação, alguns milissegundos atrás
+    // (authUser.id) — nunca uma identidade pré-existente. Isso é o que evita
+    // o usuário órfão: se o rollback funcionar, o e-mail volta a ficar
+    // totalmente livre para uma nova tentativa (nenhum Estado C criado).
+    let rollbackOk = false;
+    let rollbackErrorMsg = null;
+    try {
+      const { error: delErr } = await adminAuth().deleteUser(authUser.id);
+      if (delErr) throw delErr;
+      rollbackOk = true;
+    } catch (err) {
+      rollbackErrorMsg = err.message;
+    }
+
+    await logSemanticEventBestEffort(supabase, {
+      p_entidade: 'usuarios',
+      p_entidade_id: authUser.id,
+      p_acao: rollbackOk ? 'USER_AUTH_ROLLBACK' : 'USER_AUTH_ORPHAN',
+      p_motivo: rollbackOk
+        ? `INSERT em usuarios falhou (${profileError.code || '?'}: ${profileError.message}) — identidade Auth revertida automaticamente.`
+        : `INSERT em usuarios falhou (${profileError.code || '?'}: ${profileError.message}) — ROLLBACK da identidade Auth também falhou (${rollbackErrorMsg}); identidade ficou órfã (Estado C), use POST /api/users/reconcile.`,
+    });
+
+    if (rollbackOk) {
+      return res.status(400).json({
+        error: `Não foi possível completar o cadastro (${profileError.message}). A identidade de autenticação criada foi revertida automaticamente — nenhum e-mail de convite ficará pendente sem cadastro. Corrija os dados e tente novamente.`,
+        rollback: true,
+      });
+    }
+    return res.status(500).json({
+      error: `Não foi possível completar o cadastro (${profileError.message}) e a reversão automática da identidade de autenticação também falhou (${rollbackErrorMsg}). A identidade ficou órfã — use GET /api/users/health para confirmar e POST /api/users/reconcile para recuperar sem reenviar o convite.`,
+      rollback: false,
       auth_user_id: authUser.id,
     });
   }
 
   await logSemanticEventBestEffort(supabase, {
-    p_entidade: 'usuarios', p_entidade_id: authUser.id, p_acao: 'USER_INVITE', p_motivo: null, p_valor_novo: profile,
+    p_entidade: 'usuarios', p_entidade_id: authUser.id, p_acao: 'USER_PROFILE_CREATED', p_valor_novo: profile,
+  });
+  await logSemanticEventBestEffort(supabase, {
+    p_entidade: 'usuarios', p_entidade_id: authUser.id, p_acao: 'USER_INVITE_COMPLETED', p_valor_novo: profile,
   });
 
-  return res.status(201).json({ ...profile, message: `Convite enviado para ${email}.` });
+  return res.status(201).json({ ...profile, message: `Convite enviado para ${emailNorm}.` });
+});
+
+// POST /api/users/reconcile — Fase 2.5.3 (seção 5/18, Estado C): completa o
+// cadastro em public.usuarios para uma identidade que já existe em
+// auth.users (convite/e-mail já enviados numa tentativa anterior que falhou
+// só no INSERT) — NUNCA cria uma identidade Auth nova, NUNCA reenvia e-mail
+// de convite, e recusa explicitamente se o e-mail já estiver 100% cadastrado
+// (Estado B) — reconciliação só se aplica ao Estado C.
+router.post('/reconcile', async (req, res) => {
+  const { email, nome, telefone, cpf, cargo, departamento, perfil, observacoes } = req.body || {};
+  if (!email || !nome || !perfil) {
+    return res.status(400).json({ error: 'email, nome e perfil são obrigatórios para reconciliar um perfil.' });
+  }
+  try {
+    await assertAdmin(req);
+  } catch (err) {
+    return handleError(res, err);
+  }
+  if (!adminAuthAvailable()) {
+    return res.status(501).json({ error: 'SERVICE_ROLE_NAO_CONFIGURADO: reconciliação depende da Auth Admin API — configure SUPABASE_SERVICE_ROLE_KEY no backend.' });
+  }
+
+  const emailNorm = email.trim();
+  const supabase = clientForRequest(req.userJwt);
+
+  const { data: existingProfile, error: profileLookupError } = await supabase
+    .from('usuarios').select('id').ilike('email', emailNorm).is('removido_em', null).maybeSingle();
+  if (profileLookupError) return handleError(res, profileLookupError);
+  if (existingProfile) {
+    return res.status(409).json({
+      error: `Já existe cadastro completo para ${emailNorm} (Estado B) — reconciliação não se aplica a um cadastro já completo.`,
+      state: 'B_JA_REGISTRADO',
+    });
+  }
+
+  let existingAuth;
+  try {
+    existingAuth = await findAuthUserByEmail(emailNorm);
+  } catch (err) {
+    return handleError(res, err);
+  }
+  if (!existingAuth) {
+    return res.status(404).json({
+      error: `Nenhuma identidade de autenticação encontrada para ${emailNorm} — reconciliação só se aplica ao Estado C (identidade Auth sem perfil). Use POST /api/users/invite para um convite novo.`,
+    });
+  }
+
+  const { data: profile, error: profileError } = await completeProfile(supabase, {
+    id: existingAuth.id, nome, email: emailNorm, telefone, cpf, cargo, departamento, perfil, observacoes,
+  });
+  if (profileError) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[optimon-api][USER_INVITE_PROFILE] reconcile: INSERT em public.usuarios falhou — `
+      + `auth_user_id=${existingAuth.id} email=${emailNorm} `
+      + `code=${profileError.code || '?'} message=${profileError.message || '?'} `
+      + `details=${profileError.details || '-'} hint=${profileError.hint || '-'}`,
+    );
+    return handleError(res, profileError);
+  }
+
+  await logSemanticEventBestEffort(supabase, {
+    p_entidade: 'usuarios', p_entidade_id: existingAuth.id, p_acao: 'USER_PROFILE_RECONCILED', p_valor_novo: profile,
+  });
+
+  return res.status(201).json({ ...profile, message: `Cadastro recuperado para ${emailNorm} — nenhum novo convite foi enviado (a identidade de autenticação já existia).` });
 });
 
 // POST /api/users/:id/resend-invite — seção 6.
@@ -413,3 +781,7 @@ module.exports = router;
 // comum, então anexar uma propriedade nela não afeta `app.use('/api/users', ...)` em
 // nada; nenhuma outra rota importa isto.
 module.exports.frontendRedirectUrl = frontendRedirectUrl;
+// Exposta pelo mesmo motivo, agora para tests/run_tests_fase253.sh testar
+// diretamente o conserto da causa raiz (string vazia → null) sem precisar de
+// HTTP/Postgres reais.
+module.exports.emptyToNull = emptyToNull;

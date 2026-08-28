@@ -7,9 +7,16 @@ import { supabase } from './supabaseClient';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, payload) {
     super(message);
     this.status = status;
+    // Fase 2.5.3: /api/users/invite e /api/users/reconcile agora devolvem
+    // campos estruturados no corpo de erro (state: 'B_JA_REGISTRADO' |
+    // 'C_AUTH_ORFAO' | 'D_PERFIL_ORFAO', auth_user_id, rollback) para o
+    // frontend poder oferecer a ação certa (ex.: "Recuperar Perfil") em vez
+    // de só mostrar o texto do erro — ver api/routes/users.js.
+    this.payload = payload || null;
+    this.state = payload?.state || null;
   }
 }
 
@@ -37,15 +44,16 @@ async function request(path, { method = 'GET', body } = {}) {
 
   // BUG REAL encontrado em produção (Fase 2.5.1, correção pós-entrega): 207 Multi-Status
   // está dentro da faixa 200-299, então `res.ok` era true para ele — POST
-  // /api/users/invite usa 207 propositalmente para sinalizar sucesso PARCIAL (identidade
+  // /api/users/invite usava 207 propositalmente para sinalizar sucesso PARCIAL (identidade
   // criada no Supabase Auth, mas o INSERT em public.usuarios falhou), mas como isso nunca
   // era tratado como erro aqui, a tela de Usuários exibia sempre a mensagem de sucesso
   // padrão ("Convite enviado para <e-mail>.") — o admin nunca via o aviso real, e o
   // usuário nunca aparecia na listagem porque a linha em public.usuarios nunca existiu.
-  // 207 é usado hoje só para esse caso — tratado aqui como erro para qualquer uso futuro
-  // também nunca ser engolido silenciosamente.
+  // A Fase 2.5.3 removeu esse 207 da própria rota (agora responde 400/409/500 com rollback
+  // controlado — ver api/routes/users.js) — o check abaixo continua aqui como cinto de
+  // segurança permanente contra regressão: nenhum futuro 2xx parcial volta a ser engolido.
   if (!res.ok || res.status === 207) {
-    throw new ApiError(payload?.error || `Erro ${res.status} ao chamar ${path}.`, res.status);
+    throw new ApiError(payload?.error || `Erro ${res.status} ao chamar ${path}.`, res.status, payload);
   }
   return payload;
 }
@@ -164,6 +172,12 @@ export const api = {
     reactivate: (id, body = {}) => request(`/api/users/${id}/reactivate`, { method: 'POST', body }),
     update: (id, body) => request(`/api/users/${id}`, { method: 'PATCH', body }),
     touchAccess: () => request('/api/users/me/touch-access', { method: 'POST' }),
+    // Fase 2.5.3 — Estado C (identidade Auth sem perfil): completa o
+    // cadastro sem reenviar convite nem criar identidade nova.
+    reconcile: (body) => request('/api/users/reconcile', { method: 'POST', body }),
+    // Fase 2.5.3 — diagnóstico de integridade Auth x public.usuarios, usado
+    // pelo indicador em Usuários e pela tela /usuarios/saude.
+    health: () => request('/api/users/health'),
   },
 
   signatures: {
