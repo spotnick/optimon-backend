@@ -385,9 +385,11 @@ echo "=============================================="
 # frontendRedirectUrl() sempre pegava a PRIMEIRA origem de CORS_ALLOWED_ORIGINS — e
 # CORS_ALLOWED_ORIGINS quase sempre lista localhost primeiro (é o próprio padrão em
 # api/.env.example). Este teste roda a função de verdade (não reimplementa a lógica),
-# nos 3 cenários que importam: PUBLIC_APP_URL explícito sempre vence; sem ele, a
-# primeira origem que NÃO pareça localhost é escolhida; e o resultado sempre aponta para
-# /definir-senha (a página nova que recebe esse retorno), nunca para /login.
+# nos 4 cenários que importam: PUBLIC_APP_URL explícito sempre vence; sem ele, a
+# primeira origem que NÃO pareça localhost é escolhida; o resultado sempre aponta para
+# /definir-senha (a página nova que recebe esse retorno), nunca para /login; e uma barra
+# final em PUBLIC_APP_URL (erro real de digitação em produção, ex.: ".../roan.vercel.app/")
+# nunca produz "//definir-senha" (barra dupla).
 REDIRECT_OUT=$(cd api && node -e "
 const { frontendRedirectUrl } = require('./routes/users.js');
 process.env.PUBLIC_APP_URL = '';
@@ -395,11 +397,13 @@ process.env.CORS_ALLOWED_ORIGINS = 'http://localhost:5173,https://optimon-prod.v
 const semExplicita = frontendRedirectUrl();
 process.env.PUBLIC_APP_URL = 'https://optimon-prod.vercel.app';
 const comExplicita = frontendRedirectUrl();
-console.log(JSON.stringify({ semExplicita, comExplicita }));
+process.env.PUBLIC_APP_URL = 'https://optimon-backend-roan.vercel.app/';
+const comBarraFinal = frontendRedirectUrl();
+console.log(JSON.stringify({ semExplicita, comExplicita, comBarraFinal }));
 " 2>/dev/null)
-EXPECTED='{"semExplicita":"https://optimon-prod.vercel.app/definir-senha","comExplicita":"https://optimon-prod.vercel.app/definir-senha"}'
+EXPECTED='{"semExplicita":"https://optimon-prod.vercel.app/definir-senha","comExplicita":"https://optimon-prod.vercel.app/definir-senha","comBarraFinal":"https://optimon-backend-roan.vercel.app/definir-senha"}'
 if [ "$REDIRECT_OUT" = "$EXPECTED" ]; then
-  pass "TESTE-redirect frontendRedirectUrl() nunca escolhe localhost quando existe uma origem real na lista, e sempre aponta para /definir-senha"
+  pass "TESTE-redirect frontendRedirectUrl() nunca escolhe localhost quando existe uma origem real na lista, sempre aponta para /definir-senha, e nunca produz barra dupla com PUBLIC_APP_URL terminando em barra"
 else
   fail "TESTE-redirect" "esperado=$EXPECTED obtido=$REDIRECT_OUT"
 fi

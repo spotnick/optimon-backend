@@ -90,7 +90,12 @@ function frontendRedirectUrl() {
   const explicit = (process.env.PUBLIC_APP_URL || '').trim();
   const origins = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
   const nonLocal = origins.find((o) => !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o));
-  const base = explicit || nonLocal || origins[0];
+  // BUG REAL encontrado em produção: PUBLIC_APP_URL configurado com barra no final
+  // (ex.: "https://optimon-backend-roan.vercel.app/") produzia
+  // ".../definir-senha" com barra dupla ("...app//definir-senha"). Remove qualquer
+  // barra final antes de concatenar o caminho — nunca confia que a variável de
+  // ambiente foi digitada sem barra no final.
+  const base = (explicit || nonLocal || origins[0] || '').replace(/\/+$/, '') || undefined;
   if (!explicit && base) {
     // eslint-disable-next-line no-console
     console.warn(`[optimon-api] PUBLIC_APP_URL não configurado — usando "${base}" (derivado de CORS_ALLOWED_ORIGINS) como URL de redirecionamento de convite/redefinição de senha. Configure PUBLIC_APP_URL explicitamente para evitar ambiguidade.`);
