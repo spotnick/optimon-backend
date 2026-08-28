@@ -149,10 +149,11 @@ export const api = {
     update: (id, body) => request(`/api/partners/${id}`, { method: 'PATCH', body }),
     deactivate: (id, body = {}) => request(`/api/partners/${id}/deactivate`, { method: 'POST', body }),
     reactivate: (id, body = {}) => request(`/api/partners/${id}/reactivate`, { method: 'POST', body }),
-    responsaveis: (id) => request(`/api/partners/${id}/responsaveis`),
+    responsaveis: (id, incluirRemovidos) => request(`/api/partners/${id}/responsaveis${incluirRemovidos ? '?incluir_removidos=true' : ''}`),
     addResponsavel: (id, body) => request(`/api/partners/${id}/responsaveis`, { method: 'POST', body }),
     updateResponsavel: (id, respId, body) => request(`/api/partners/${id}/responsaveis/${respId}`, { method: 'PATCH', body }),
     removeResponsavel: (id, respId) => request(`/api/partners/${id}/responsaveis/${respId}`, { method: 'DELETE' }),
+    restoreResponsavel: (id, respId) => request(`/api/partners/${id}/responsaveis/${respId}/restore`, { method: 'POST' }),
     documentos: (id) => request(`/api/partners/${id}/documentos`),
     // Upload multipart — não passa por request() (JSON-only); ver uploadMultipart abaixo.
     uploadDocumento: (id, formData) => uploadMultipart(`/api/partners/${id}/documentos`, formData),
@@ -170,6 +171,10 @@ export const api = {
     resetAccess: (id) => request(`/api/users/${id}/reset-access`, { method: 'POST' }),
     deactivate: (id, body = {}) => request(`/api/users/${id}/deactivate`, { method: 'POST', body }),
     reactivate: (id, body = {}) => request(`/api/users/${id}/reactivate`, { method: 'POST', body }),
+    // Fase 3 (item 3.8): exclusão FÍSICA controlada — nunca confundir com deactivate
+    // (soft-delete) acima. Só ADMINISTRADOR, motivo obrigatório, e sempre bloqueada pelo
+    // servidor se o usuário tiver qualquer histórico vinculado.
+    hardDelete: (id, body) => request(`/api/users/${id}/hard-delete`, { method: 'POST', body }),
     update: (id, body) => request(`/api/users/${id}`, { method: 'PATCH', body }),
     touchAccess: () => request('/api/users/me/touch-access', { method: 'POST' }),
     // Fase 2.5.3 — Estado C (identidade Auth sem perfil): completa o
@@ -210,11 +215,27 @@ export const api = {
     dashboard: () => request('/api/contracts/dashboard/resumo'),
     gerarAlertas: () => request('/api/contracts/dashboard/gerar-alertas', { method: 'POST' }),
     alertas: (params = {}) => request(`/api/contracts/dashboard/alertas?${new URLSearchParams(params)}`),
+    resolverAlerta: (id) => request(`/api/contracts/dashboard/alertas/${id}/resolver`, { method: 'POST' }),
+    dashboardCapacidade: () => request('/api/contracts/dashboard/capacidade'),
+    dashboardCenariosPortfolio: (horizontes) => request(`/api/contracts/dashboard/cenarios-portfolio${horizontes ? `?horizontes=${horizontes.join(',')}` : ''}`),
+    // Fase 3 (item 3.7): minuta de contrato (documento gerado, sempre "SUJEITA À
+    // APROVAÇÃO JURÍDICA") + guardrails contratuais (exclusividade/fibra de terceiros/
+    // rede própria) + clientes reservados (ex.: exceção Prefeitura).
+    minutaPath: (id, formato) => `/api/contracts/${id}/minuta?formato=${formato}`,
+    updateRegras: (id, body) => request(`/api/contracts/${id}/regras`, { method: 'PATCH', body }),
+    addClienteReservado: (id, body) => request(`/api/contracts/${id}/clientes-reservados`, { method: 'POST', body }),
+    updateClienteReservado: (id, reservaId, body) => request(`/api/contracts/${id}/clientes-reservados/${reservaId}`, { method: 'PATCH', body }),
   },
 
   audit: {
     list: (params = {}) => request(`/api/audit?${new URLSearchParams(params)}`),
     logLogin: () => request('/api/audit/login', { method: 'POST' }),
+  },
+
+  reports: {
+    get: (tipo) => request(`/api/reports/${tipo}`),
+    faturamentoReal: () => request('/api/reports/faturamento-real/status'),
+    csvPath: (tipo) => `/api/reports/${tipo}/csv`,
   },
 };
 

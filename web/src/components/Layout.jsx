@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   { to: '/propostas', label: 'Propostas', icon: '▤' },
   { to: '/proponentes', label: 'Proponentes', icon: '⌂' },
   { to: '/contratos', label: 'Contratos', icon: '§' },
+  { to: '/relatorios', label: 'Relatórios', icon: '▦' },
+  { to: '/alertas', label: 'Alertas', icon: '⚠' },
   { to: '/assinaturas', label: 'Assinaturas', icon: '✒' },
   { to: '/usuarios', label: 'Usuários', icon: '☺' },
   { to: '/configuracoes/assinatura', label: 'Config. de Assinatura', icon: '⚙' },
@@ -31,7 +33,7 @@ export default function Layout() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="mark" />
+          <img src="/branding/optimon-icon.svg" alt="" className="mark" width="32" height="32" />
           <div>
             <div className="name">OptiMon</div>
             <div className="tagline">Pricing &amp; Assets</div>

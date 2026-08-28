@@ -61,7 +61,7 @@ export default function Signatures() {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1>Assinaturas</h1>
-          <p>Envelopes de assinatura eletrônica (propostas/contratos/aditivos) — o OptiMon orquestra, nunca substitui o provedor ICP-Brasil.</p>
+          <p>Envelopes de assinatura eletrônica (propostas/contratos/aditivos) — o OptiMon orquestra, nunca substitui, o provedor de assinatura. Hoje só o provedor de homologação (mock) está implementado — ver <Link className="link-tab" to="/configuracoes/assinatura">Configuração de Assinatura</Link> para o status ICP-Brasil completo.</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
           <div className="field" style={{ minWidth: 220 }}>

@@ -22,6 +22,8 @@ import ContractDetail from './pages/ContractDetail';
 import Signatures from './pages/Signatures';
 import SignatureDetail from './pages/SignatureDetail';
 import SignatureSettings from './pages/SignatureSettings';
+import Reports from './pages/Reports';
+import Alerts from './pages/Alerts';
 
 export default function App() {
   return (
@@ -51,6 +53,8 @@ export default function App() {
         <Route path="/proponentes/:id" element={<PartnerDetail />} />
         <Route path="/contratos" element={<Contracts />} />
         <Route path="/contratos/:id" element={<ContractDetail />} />
+        <Route path="/relatorios" element={<Reports />} />
+        <Route path="/alertas" element={<Alerts />} />
         <Route path="/assinaturas" element={<Signatures />} />
         <Route path="/assinaturas/:id" element={<SignatureDetail />} />
         <Route path="/usuarios" element={<Users />} />

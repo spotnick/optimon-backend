@@ -4,10 +4,15 @@ import { api, ApiError } from '../lib/api';
 
 const PAPEIS = ['REPRESENTANTE_NICK', 'REPRESENTANTE_PROPONENTE', 'TESTEMUNHA', 'OUTRO'];
 
+// Fase 3 (item 3.10): rótulos corrigidos para não sugerir uma verificação criptográfica
+// que este sistema não faz — 'certificado_valido' é, na função SQL app.validar_assinatura,
+// literalmente uma checagem de status do envelope + a política configurada
+// (politica_assinatura = 'ICP_BRASIL_QUALIFICADA') — uma comparação de texto/enum, nunca
+// uma validação real de cadeia de certificado. Ver o aviso logo abaixo do checklist.
 const CHECK_LABELS = {
   documento_integro: 'Documento íntegro (hash presente)',
   assinatura_valida: 'Assinatura no provedor confirmada',
-  certificado_valido: 'Certificado ICP-Brasil qualificado',
+  certificado_valido: 'Política de assinatura configurada = ICP-Brasil Qualificada',
   signatarios_confirmados: 'Todos os signatários confirmaram',
   documento_nao_alterado: 'Documento não foi alterado após assinado',
 };
@@ -132,6 +137,13 @@ export default function SignatureDetail() {
             ))}
           </ul>
           <p style={{ fontWeight: 700 }}>{validation.validado ? '✓ Assinatura VALIDADA — todos os critérios confirmados.' : '✕ Assinatura ainda NÃO pode ser considerada válida — nem todo status=ASSINADO garante isso por si só.'}</p>
+          <p style={{ color: 'var(--text-muted, #666)', fontSize: 13, marginBottom: 0 }}>
+            <strong>Status atual (item 3.10):</strong> esta é uma checagem de consistência dos dados registrados no OptiMon
+            (status do envelope, política configurada, confirmação de cada signatário) — <strong>não</strong> uma validação
+            criptográfica de certificado junto a uma Autoridade Certificadora real. Hoje só existe um provedor de
+            homologação (mock) implementado; nenhum provedor ICP-Brasil real foi integrado ou testado. Veja "Ajuda &amp;
+            Manuais → Como funciona a assinatura eletrônica" para o detalhe completo.
+          </p>
         </div>
       )}
 

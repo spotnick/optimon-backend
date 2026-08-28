@@ -78,14 +78,26 @@ export default function SignatureSettings() {
         <div>
           <h1>Configuração de Assinatura Eletrônica</h1>
           <p>
-            O OptiMon nunca implementa sua própria infraestrutura de certificação — só orquestra um provedor
-            ICP-Brasil (troca de provedor sem tocar em contrato/proposta/banco/frontend). Só{' '}
-            <strong>ADMINISTRADOR/DIRETOR</strong> pode alterar política/provedor.
+            O OptiMon nunca implementa sua própria infraestrutura de certificação — a arquitetura é feita para
+            orquestrar um provedor ICP-Brasil real (troca de provedor sem tocar em contrato/proposta/banco/frontend).
+            Só <strong>ADMINISTRADOR/DIRETOR</strong> pode alterar política/provedor.
           </p>
         </div>
         {canWrite && (
           <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>{showForm ? 'Cancelar' : '+ Novo Provedor'}</button>
         )}
+      </div>
+
+      {/* Fase 3 (item 3.10): status honesto e visível — a checagem "Testar Conexão" mais
+          abaixo não substitui esta leitura; ela só confirma que a configuração do provedor
+          é sintaticamente válida, nunca que existe integração real testada. */}
+      <div className="card" style={{ marginBottom: 16, borderColor: 'var(--accent-warning, #b45309)', background: 'var(--surface-warning, #fef3c7)' }}>
+        <strong>Status ICP-Brasil: NÃO TESTADO com provedor real.</strong>{' '}
+        Hoje só existe um provedor de <strong>homologação (mock)</strong> implementado — ele nunca faz chamada de rede
+        real, nunca valida certificado digital, nunca gera um PAdES. O tipo "ICP_BRASIL_PROVEDOR_EXTERNO" existe no
+        cadastro para permitir configurar uma integração real no futuro, mas <strong>não há nenhum código de
+        integração por trás dele ainda</strong> — tentar usá-lo hoje resulta em erro controlado, nunca numa assinatura
+        real. Nenhum documento assinado neste sistema hoje tem validade jurídica ICP-Brasil real.
       </div>
 
       {showForm && (
@@ -96,8 +108,8 @@ export default function SignatureSettings() {
             <div className="field">
               <label>Tipo *</label>
               <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-                <option value="ICP_BRASIL_HOMOLOGACAO_MOCK">ICP_BRASIL_HOMOLOGACAO_MOCK (simulado, só HOMOLOGAÇÃO)</option>
-                <option value="ICP_BRASIL_PROVEDOR_EXTERNO">ICP_BRASIL_PROVEDOR_EXTERNO (integração real — ver limitações no relatório)</option>
+                <option value="ICP_BRASIL_HOMOLOGACAO_MOCK">ICP_BRASIL_HOMOLOGACAO_MOCK (simulado, só HOMOLOGAÇÃO — único provedor implementado hoje)</option>
+                <option value="ICP_BRASIL_PROVEDOR_EXTERNO">ICP_BRASIL_PROVEDOR_EXTERNO (cadastro reservado — SEM integração implementada; salvar não cria uma assinatura real)</option>
               </select>
             </div>
             <div className="field">

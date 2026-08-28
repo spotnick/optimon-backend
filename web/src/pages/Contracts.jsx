@@ -25,7 +25,7 @@ export default function Contracts() {
     <div className="page">
       <div className="page-header">
         <h1>Contratos</h1>
-        <p>Ciclo completo proposta → contrato → assinatura ICP-Brasil → ativação — infraestrutura só é comprometida após assinatura validada.</p>
+        <p>Ciclo completo proposta → contrato → assinatura eletrônica (política ICP-Brasil configurada, provedor real ainda não integrado) → ativação — infraestrutura só é comprometida após assinatura validada.</p>
       </div>
 
       {dashboard && (
@@ -37,7 +37,7 @@ export default function Contracts() {
           <div><div style={{ fontSize: 12, color: 'var(--text-muted, #666)' }}>Valor mensal contratado</div><div style={{ fontSize: 24, fontWeight: 700 }}>{formatCurrencyFull(dashboard.valor_mensal_contratado)}</div></div>
           <div><div style={{ fontSize: 12, color: 'var(--text-muted, #666)' }}>PONs locadas</div><div style={{ fontSize: 24, fontWeight: 700 }}>{dashboard.pons_locadas}</div></div>
           <div><div style={{ fontSize: 12, color: 'var(--text-muted, #666)' }}>Fibras locadas</div><div style={{ fontSize: 24, fontWeight: 700 }}>{dashboard.fibras_locadas}</div></div>
-          <div><div style={{ fontSize: 12, color: 'var(--text-muted, #666)' }}>Alertas não resolvidos</div><div style={{ fontSize: 24, fontWeight: 700 }}>{dashboard.alertas_nao_resolvidos}</div></div>
+          <div><div style={{ fontSize: 12, color: 'var(--text-muted, #666)' }}>Alertas não resolvidos</div><div style={{ fontSize: 24, fontWeight: 700 }}><Link className="link-tab" to="/alertas">{dashboard.alertas_nao_resolvidos} →</Link></div></div>
         </div>
       )}
 

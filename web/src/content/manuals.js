@@ -10,6 +10,21 @@
 // funciona a assinatura eletrônica" (cross-perfil), e estende os 4 manuais existentes
 // com os fluxos de proponente, aprovação interna, assinatura e contrato que a Fase 2.5
 // introduziu e que ainda não estavam documentados em nenhum manual.
+//
+// Fase 3 (item 3.10): corrige textos que descreviam a validação ICP-Brasil como real
+// quando só o provedor mock de homologação existe.
+//
+// Fase 3 (item 3.14) — "Manuais por perfil: reescrever conteúdo completo": acrescenta o
+// Manual do Auditor (o perfil AUDITOR nunca tinha um manual dedicado — via a Central de
+// Ajuda sem nenhum manual marcado como "seu perfil"); corrige a seção de exclusão de
+// usuário no Manual do Administrador, que ainda afirmava "nunca existe exclusão física"
+// depois que o item 3.8 introduziu justamente essa função; e estende os 5 manuais
+// existentes com os recursos da Fase 3 ainda não documentados em nenhum manual: minuta
+// de contrato, guardrails contratuais, clientes reservados, restauração de responsável
+// removido, tela de Alertas (item 3.11) e tela de Relatórios (item 3.6) — incluindo,
+// sempre que relevante, a limitação honesta de que Faturamento Real/Take-or-Pay/
+// Revenue Share real dependem de dados que o sistema ainda não recebe (ligados à
+// integração HubSoft, explicitamente fora de escopo nesta fase).
 
 export const MANUALS = [
   {
@@ -32,9 +47,15 @@ Ao confirmar, o OptiMon cria a identidade de autenticação e envia um convite p
       },
       {
         titulo: 'Editando, desativando e reativando usuários',
-        corpo: `Na lista de usuários, cada linha tem as ações "Editar" (nome, telefone, CPF, cargo, departamento, perfil e observações — o e-mail e o identificador de autenticação nunca são editáveis por aqui), "Desativar"/"Reativar" (nunca existe exclusão física de usuário — desativar é sempre uma ação lógica, com motivo obrigatório e confirmação explícita), "Reenviar convite" (para quem ainda não definiu senha) e "Redefinir acesso" (dispara um e-mail de redefinição de senha para quem já tem conta).
+        corpo: `Na lista de usuários, cada linha tem as ações "Editar" (nome, telefone, CPF, cargo, departamento, perfil e observações — o e-mail e o identificador de autenticação nunca são editáveis por aqui), "Desativar"/"Reativar" (a ação do dia a dia para tirar alguém de uso — sempre lógica, com motivo obrigatório e confirmação explícita, e reversível a qualquer momento), "Reenviar convite" (para quem ainda não definiu senha) e "Redefinir acesso" (dispara um e-mail de redefinição de senha para quem já tem conta).
 
 Um usuário desativado é bloqueado de executar qualquer ação que exija perfil (as regras de RLS do banco só reconhecem usuário com "ativo=true") — o efeito é imediato, sem precisar de nenhum passo extra.`,
+      },
+      {
+        titulo: 'Excluir Fisicamente — irreversível, e por isso deliberadamente difícil',
+        corpo: `Diferente de "Desativar" (lógico e reversível), o botão "Excluir Fisicamente" (visível só para usuários ativos) remove a linha do cadastro de verdade — não é mais possível reverter pelo sistema depois disso. Por isso o fluxo tem barreiras propositais: é preciso digitar o e-mail exato da pessoa para confirmar (nunca basta clicar em um botão de confirmação genérico) e informar um motivo obrigatório.
+
+O sistema recusa a exclusão física — sem exceção, mesmo para ADMINISTRADOR — em três situações: tentar excluir a si mesmo, excluir o último ADMINISTRADOR ativo do sistema, ou excluir alguém que tenha qualquer vínculo de histórico (autoria de auditoria, aprovação de proposta, aprovação de aditivo, registro de reajuste, entre ~19 tabelas verificadas) — nesse último caso a mensagem de erro explica exatamente qual vínculo está bloqueando, e a alternativa correta continua sendo "Desativar". Antes de apagar a linha, o sistema grava um evento de auditoria da própria exclusão (sem o CPF, por privacidade) — então mesmo depois de excluído fisicamente, o fato de que aquele usuário existiu e foi removido, por quem e por quê, permanece na trilha de auditoria (que é sempre imutável, nunca apagada junto).`,
       },
       {
         titulo: 'Status de autenticação',
@@ -48,7 +69,9 @@ Um proponente nunca é excluído fisicamente — "Desativar" é sempre uma exclu
       },
       {
         titulo: 'Responsáveis do proponente',
-        corpo: `Dentro do proponente, "+ Adicionar responsável" cadastra a pessoa de contato: Nome, CPF, Cargo, Departamento, E-mail, Telefone, WhatsApp, Tipo e se é Representante Legal, além de um documento comprobatório opcional. Responsáveis também nunca são excluídos fisicamente — são arquivados, preservando o histórico de quem já representou o proponente em algum momento.`,
+        corpo: `Dentro do proponente, "+ Adicionar responsável" cadastra a pessoa de contato: Nome, CPF, Cargo, Departamento, E-mail, Telefone, WhatsApp, Tipo e se é Representante Legal, além de um documento comprobatório opcional. Responsáveis também nunca são excluídos fisicamente — "Remover" é sempre uma remoção lógica.
+
+Um responsável removido não fica perdido: marque "Mostrar removidos" na tela do proponente para vê-lo na lista (identificado como inativo) e usar o botão "Restaurar" a qualquer momento — o mesmo padrão usado para cidades, POPs e segmentos de infraestrutura.`,
       },
       {
         titulo: 'Documentos — sempre por link temporário',
@@ -60,25 +83,45 @@ Um proponente nunca é excluído fisicamente — "Desativar" é sempre uma exclu
       },
       {
         titulo: 'Assinatura eletrônica',
-        corpo: `Toda proposta e todo contrato (e aditivo) que precisam de assinatura passam por um envelope de assinatura eletrônica ICP-Brasil, criado em "Assinaturas". Veja o guia dedicado "Como funciona a assinatura eletrônica" para o passo a passo completo — este manual cobre só a parte de configuração do provedor, abaixo.`,
+        corpo: `Toda proposta e todo contrato (e aditivo) que precisam de assinatura passam por um envelope de assinatura eletrônica, criado em "Assinaturas", com política configurada para ICP-Brasil. IMPORTANTE: até hoje só existe um provedor de homologação (mock) implementado — nenhum provedor ICP-Brasil real foi integrado ou testado (ver o guia dedicado "Como funciona a assinatura eletrônica", seção "Status atual", para o detalhe completo antes de assumir validade jurídica real de qualquer assinatura feita no sistema hoje). Este manual cobre só a parte de configuração do provedor, abaixo.`,
       },
       {
         titulo: 'Configuração de Assinatura',
-        corpo: `Em "Configurações → Assinatura" (só ADMINISTRADOR/DIRETOR podem editar), cada provedor mostra: Nome, Ambiente (Homologação/Produção), Status (ativo/inativo), URL de Webhook, Política de assinatura padrão, e o resultado do último teste de conexão (data e OK/Falha) e do último evento recebido. O botão "Testar Conexão" faz uma checagem real de conectividade com o provedor configurado e mostra o diagnóstico na tela — nunca expõe a chave de API nem o segredo do webhook, só o nome da variável de ambiente onde cada um está guardado.
+        corpo: `Em "Configurações → Assinatura" (só ADMINISTRADOR/DIRETOR podem editar), cada provedor mostra: Nome, Ambiente (Homologação/Produção), Status (ativo/inativo), URL de Webhook, Política de assinatura padrão, e o resultado do último teste de conexão (data e OK/Falha) e do último evento recebido. O botão "Testar Conexão" valida a configuração do provedor selecionado e mostra o diagnóstico na tela — para o provedor mock de homologação (o único implementado hoje), essa checagem NÃO faz nenhuma chamada de rede real, só confirma que a combinação tipo/ambiente é válida; nunca expõe a chave de API nem o segredo do webhook, só o nome da variável de ambiente onde cada um está guardado.
 
-Para o Contrato de Cessão de Uso, a política padrão é sempre Assinatura Qualificada ICP-Brasil — essa regra é fixa e não pode ser alterada por COMERCIAL nem por nenhum outro perfil comercial.`,
+Para o Contrato de Cessão de Uso, a política configurada é sempre Assinatura Qualificada ICP-Brasil — essa regra é fixa e não pode ser alterada por COMERCIAL nem por nenhum outro perfil comercial, mas enquanto só o provedor mock estiver disponível, essa política ainda não corresponde a uma assinatura ICP-Brasil real (ver "Status atual" no guia dedicado de assinatura eletrônica).`,
       },
       {
         titulo: 'Contratos: geração, ativação e aditivos',
         corpo: `Um contrato nunca é digitado do zero — ele é gerado automaticamente a partir de uma proposta aprovada, preenchendo sozinho Cedente, Cessionário, CNPJ, Representante, Cidade, POP, Fibra/PON, Valor, Mínimo, Revenue Share, Rampa, Prazo, Reajuste, Data de início e Data de término, com base nos dados já validados na proposta e na cidade. Depois de assinado e validado, o botão "Ativar contrato" fica disponível; uma vez ativo, o contrato é bloqueado para edição direta — qualquer mudança de infraestrutura, prazo ou condição comercial passa a exigir um aditivo (que tem seu próprio ciclo de aprovação e assinatura) ou um evento de reajuste (que nunca reescreve o valor histórico, sempre cria um novo registro preservando o anterior).`,
       },
       {
+        titulo: 'Guardrails contratuais, clientes reservados e minuta',
+        corpo: `Na tela de detalhe do contrato, o card "Guardrails contratuais" reúne as regras de proteção do negócio para aquele contrato específico: exclusividade comercial (tipo, área, cidade/POP/serviço, prazo e capacidade máxima), proibição de fibra de terceiros, proibição de rede própria do parceiro, direito de preferência, exigência de aprovação para expansão, e se o proprietário pode explorar a capacidade remanescente. Editar esse card é restrito a DIRETOR/ADMINISTRADOR.
+
+O card "Clientes reservados" lista clientes finais que aquele parceiro está proibido de atender (o exemplo clássico é uma exceção de Prefeitura) — cada entrada pode ser marcada como RESERVADO ou LIBERADO. É uma lista de referência operacional: o sistema não tem hoje nenhuma tabela que associe automaticamente um cliente final nomeado a uma proposta ou contrato, então a checagem de que o parceiro está respeitando essa reserva continua sendo uma verificação manual de quem opera o contrato.
+
+O botão "Baixar Minuta" (PDF ou DOCX) gera o documento completo do contrato a partir dos dados já validados — sempre rotulado com destaque "MINUTA SUJEITA À APROVAÇÃO JURÍDICA — NÃO ASSINAR SEM REVISÃO" na capa e no rodapé de cada página. Cláusulas para as quais o sistema ainda não tem um texto jurídico definitivo (Inadimplência, Rescisão, Penalidades, Confidencialidade, LGPD, Foro) aparecem em itálico laranja, começando com "[CLÁUSULA-MODELO", justamente para nunca serem confundidas com texto já revisado e aprovado — toda minuta gerada precisa passar por revisão jurídica antes de virar o documento assinado de verdade.`,
+      },
+      {
         titulo: 'Auditoria',
         corpo: `A tela "Auditoria" (/auditoria) registra todo evento relevante do sistema — criação, edição, desativação, reativação, aprovação, reprovação, assinatura, validação, geração, exportação e cancelamento — sempre com quem fez, quando, e o motivo quando aplicável. Cada proponente também tem sua própria aba "Histórico & Auditoria" filtrada só para os eventos daquele registro; eventos de responsáveis, propostas ou contratos vinculados a ele continuam aparecendo na tela geral de Auditoria.`,
       },
       {
+        titulo: 'Alertas',
+        corpo: `A tela "Alertas" (menu lateral) lista, individualmente, tudo que precisa de atenção: propostas aguardando aprovação/assinatura, contratos aguardando assinatura, documentos recusados, contratos próximos do vencimento, fim de carência comercial se aproximando, reajuste anual pendente ou vencido, ativos não devolvidos após encerramento de contrato, capacidade de Porta PON em 80/90/100%, e operações bloqueadas pelas regras de negócio (ex.: tentativa de ativar contrato com conflito de exclusividade). O botão "Gerar alertas" atualiza a lista a partir do estado atual do sistema — não existe um job agendado nesta fase, então a lista só reflete a realidade depois de gerada. Cada alerta pode ser marcado como "Resolvido" (DIRETOR/FINANCEIRO/ENGENHARIA/ADMINISTRADOR) depois de tratado; alertas resolvidos ficam disponíveis no filtro "Resolvidos", nunca apagados.
+
+Nem todo tipo de alerta previsto no desenho do sistema é gerado hoje: alertas que dependeriam de faturamento real ou da integração HubSoft (nenhuma das duas ainda existe neste sistema) não têm como ser calculados honestamente e por isso não aparecem — é uma limitação documentada, não um bug.`,
+      },
+      {
+        titulo: 'Relatórios gerenciais',
+        corpo: `A tela "Relatórios" reúne seis relatórios prontos para consulta ou exportação em CSV: Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes. Cada um roda sob a mesma permissão (RLS) de quem está logado — nenhum relatório expõe dado que a pessoa não veria de outra forma no sistema.
+
+Um relatório de Faturamento Real também está previsto na arquitetura, mas seu status é "indisponível" — depende de medições mensais reais de consumo/faturamento por contrato, que este sistema ainda não recebe nem armazena (isso depende da integração com o HubSoft, hoje fora de escopo). A tela mostra esse status honestamente em vez de simular números.`,
+      },
+      {
         titulo: 'Exceções e segurança',
-        corpo: `AUDITOR tem acesso de leitura a tudo, mas nunca pode editar nada — nem proponente, nem usuário, nem infraestrutura. ENGENHARIA nunca aprova preço nem proposta. COMERCIAL e FINANCEIRO nunca alteram infraestrutura de rede. Só ADMINISTRADOR e DIRETOR executam ações de governança (aprovação de exceção de preço, restauração de infraestrutura arquivada, configuração do provedor de assinatura). Tentar contornar essas regras trocando o ID na URL ou chamando a API diretamente não funciona — a mesma restrição está implementada como Row-Level Security no banco, não só como um botão escondido na tela.`,
+        corpo: `AUDITOR tem acesso de leitura a tudo, mas nunca pode editar nada — nem proponente, nem usuário, nem infraestrutura. ENGENHARIA nunca aprova preço nem proposta. COMERCIAL e FINANCEIRO nunca alteram infraestrutura de rede. Só ADMINISTRADOR e DIRETOR executam ações de governança (aprovação de exceção de preço, restauração de infraestrutura arquivada, configuração do provedor de assinatura, exclusão física de usuário). Tentar contornar essas regras trocando o ID na URL ou chamando a API diretamente não funciona — a mesma restrição está implementada como Row-Level Security no banco, não só como um botão escondido na tela.`,
       },
       {
         titulo: 'O que o administrador nunca precisa fazer no Supabase',
@@ -136,6 +179,10 @@ Ao arquivar, o sistema sempre pede um motivo (lista fechada de opções) e permi
         titulo: 'Itens arquivados e o Pricing Engine',
         corpo: `Infraestrutura arquivada nunca entra nos cálculos do Pricing Engine nem nos números do Dashboard — capacidade, fibras livres e portas disponíveis sempre refletem só o que está ativo. Para ver o que foi arquivado, use o filtro "Arquivados" ou "Todos" na tela de infraestrutura da cidade.`,
       },
+      {
+        titulo: 'Alertas relevantes para Engenharia',
+        corpo: `A tela "Alertas" (menu lateral) traz três tipos de interesse direto de Engenharia: capacidade de Porta PON em 80/90/100% (gerados automaticamente sempre que um cliente é vinculado/removido de uma porta — nunca precisam do botão "Gerar alertas"), e "Ativos pendentes de devolução" — quando um contrato é encerrado ou rescindido e ainda existe algum ativo (OLT, ONU, switch, roteador) vinculado a ele sem registro de devolução. Esse alerta lista exatamente qual patrimônio/número de série está pendente, para orientar a coleta física do equipamento.`,
+      },
     ],
   },
   {
@@ -186,6 +233,14 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
         titulo: 'Exportando PDF e DOCX',
         corpo: `Os botões "Exportar PDF" e "Exportar DOCX" geram o documento completo (capa, sumário, 28 seções, tabelas e gráficos) no formato escolhido, respeitando o modo Interno/Externo selecionado na tela. O nome do arquivo segue sempre o padrão OPTIMON_Proposta_[Cidade]_[Parceiro]_[AAAAMMDD]. Toda exportação fica registrada na auditoria.`,
       },
+      {
+        titulo: 'Minuta de contrato e clientes reservados',
+        corpo: `Na tela de detalhe do contrato, o botão "Baixar Minuta" gera um rascunho do contrato em PDF/DOCX a partir dos dados já validados — sempre marcado "MINUTA SUJEITA À APROVAÇÃO JURÍDICA", nunca um documento pronto para assinar sem revisão. O card "Clientes reservados" mostra, se existir, quais clientes finais aquele parceiro está proibido de atender (por exemplo, uma exceção de Prefeitura) — vale a pena consultar antes de fechar negócio com um cliente final específico em nome do parceiro.`,
+      },
+      {
+        titulo: 'Acompanhando alertas do funil comercial',
+        corpo: `A tela "Alertas" concentra, num único lugar, tudo que está parado ou precisa de decisão: propostas aguardando aprovação, propostas/contratos aguardando assinatura, documentos recusados na assinatura, contratos próximos do vencimento e o fim da carência comercial se aproximando (o momento em que o preço do parceiro sobe para o valor cheio). É um bom ponto de partida para o acompanhamento diário do funil, em vez de checar cada proposta/contrato individualmente.`,
+      },
     ],
   },
   {
@@ -222,6 +277,16 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
         titulo: 'Projeções de horizonte',
         corpo: `A tabela de horizonte (12/36/48/60 meses) mostra a receita acumulada da OptiMon e do parceiro em cada prazo, junto com ROI e payback quando um investimento (CAPEX) é informado. O prazo de 48 meses é o mínimo contratual padrão; 60 meses é sempre uma projeção ilustrativa além do contrato, nunca um compromisso.`,
       },
+      {
+        titulo: 'Relatórios',
+        corpo: `A tela "Relatórios" traz seis relatórios prontos, cada um exportável em CSV: Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes — todos calculados a partir do que já está contratado/reajustado no sistema, nunca de faturamento real de terceiros.
+
+Um relatório de Faturamento Real também está desenhado na arquitetura, mas hoje aparece como "indisponível": ele depende de medições mensais reais de consumo/faturamento por contrato (e, em última instância, da integração com o HubSoft), que este sistema ainda não recebe. Pelo mesmo motivo, o Revenue Share e o Take-or-Pay mostrados em telas e relatórios são sempre a condição contratual (o que está pactuado), nunca o valor realmente cobrado/pago mês a mês — essa distinção importa para conciliação financeira.`,
+      },
+      {
+        titulo: 'Alertas financeiros',
+        corpo: `A tela "Alertas" traz dois tipos de interesse direto do Financeiro: "Reajuste anual pendente" (contrato com índice de reajuste configurado cujo ciclo de 12 meses está vencendo em até 30 dias, ou já venceu sem que um novo reajuste tenha sido aplicado) e "Fim da carência comercial" (aviso de que o preço do parceiro vai subir para o valor cheio em até 30 dias — útil para prever a mudança de receita). Contratos com índice de reajuste "SEM_REAJUSTE" nunca geram o alerta de reajuste, por desenho.`,
+      },
     ],
   },
   {
@@ -247,8 +312,12 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
         corpo: `Um contrato só pode ser ativado depois que a assinatura eletrônica correspondente está VALIDADA — o botão "Ativar contrato" fica indisponível até lá. Uma vez ativo, o contrato é bloqueado contra edição direta: qualquer mudança de condição passa a exigir um aditivo formal, com seu próprio ciclo de aprovação e assinatura, nunca uma edição silenciosa.`,
       },
       {
-        titulo: 'Visão consolidada',
-        corpo: `O Dashboard mostra os principais indicadores agregados — cidades ativas, capacidade de rede, contratos ativos, propostas pendentes, assinaturas pendentes, contratos pendentes de assinatura, reajustes próximos, proponentes ativos, usuários ativos e com convite pendente, e alertas não resolvidos — sempre excluindo infraestrutura arquivada dos números de capacidade. A lista de Propostas e a de Contratos podem ser filtradas por status para acompanhar o funil completo, da simulação até o contrato ativo.`,
+        titulo: 'Guardrails contratuais e minuta',
+        corpo: `Editar o card "Guardrails contratuais" (exclusividade comercial, proibição de fibra de terceiros/rede própria, direito de preferência, exigência de aprovação de expansão) e o cadastro de "Clientes reservados" de um contrato é restrito a DIRETOR/ADMINISTRADOR — são as regras que protegem o relacionamento comercial de longo prazo com o parceiro, então a mudança fica registrada como qualquer outra decisão de governança. A minuta de contrato gerada pelo sistema (botão "Baixar Minuta") é sempre um rascunho sujeito a aprovação jurídica — nunca trate como o documento final pronto para assinar.`,
+      },
+      {
+        titulo: 'Visão consolidada e alertas',
+        corpo: `O Dashboard mostra os principais indicadores agregados — cidades ativas, capacidade de rede, contratos ativos, propostas pendentes, assinaturas pendentes, contratos pendentes de assinatura, reajustes próximos, proponentes ativos, usuários ativos e com convite pendente, e a contagem de alertas não resolvidos (com link direto para a tela "Alertas") — sempre excluindo infraestrutura arquivada dos números de capacidade. A tela "Alertas" detalha cada item individualmente (proposta/contrato parado, documento recusado, reajuste vencendo, fim de carência, ativo não devolvido, capacidade no limite, operação bloqueada) e permite marcar como resolvido depois de tratado. A lista de Propostas e a de Contratos podem ser filtradas por status para acompanhar o funil completo, da simulação até o contrato ativo.`,
       },
       {
         titulo: 'Documento para apresentação externa',
@@ -256,7 +325,43 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
       },
       {
         titulo: 'Trilha de auditoria como ferramenta de governança',
-        corpo: `Toda decisão de exceção (autorização abaixo do piso, aprovação de aditivo, restauração de infraestrutura arquivada, rejeição de proposta, desativação de usuário ou proponente) fica permanentemente registrada com autor, data/hora e motivo — a tela de Auditoria é a fonte de verdade para qualquer revisão de compliance ou disputa comercial futura.`,
+        corpo: `Toda decisão de exceção (autorização abaixo do piso, aprovação de aditivo, restauração de infraestrutura arquivada, rejeição de proposta, desativação/exclusão física de usuário ou proponente) fica permanentemente registrada com autor, data/hora e motivo — a tela de Auditoria é a fonte de verdade para qualquer revisão de compliance ou disputa comercial futura, e nunca pode ser editada ou apagada, nem por ADMINISTRADOR. Uma tentativa de operação bloqueada pelas regras de negócio (ex.: ativar um contrato com conflito de exclusividade comercial) também gera automaticamente um alerta do tipo "Operação bloqueada" na tela Alertas, além do registro na auditoria — assim uma tentativa recorrente de contornar uma regra fica visível sem precisar vasculhar o log inteiro.`,
+      },
+      {
+        titulo: 'Relatórios para acompanhamento executivo',
+        corpo: `A tela "Relatórios" reúne Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes, todos exportáveis em CSV para apresentação ou análise externa. O relatório de Faturamento Real ainda aparece como indisponível nesta fase — depende de dados de faturamento/medição real que o sistema não recebe hoje (ligado à integração HubSoft, fora de escopo) — os números de receita mostrados em todo o sistema são sempre a condição contratual pactuada, nunca o valor efetivamente cobrado.`,
+      },
+    ],
+  },
+  {
+    slug: 'auditor',
+    titulo: 'Manual do Auditor',
+    publico: 'AUDITOR',
+    resumo: 'Acesso de leitura a todo o sistema — cidades, propostas, contratos, usuários, proponentes, assinaturas, alertas e relatórios — sem poder criar, editar, aprovar ou excluir nada.',
+    secoes: [
+      {
+        titulo: 'O que o perfil AUDITOR pode e não pode fazer',
+        corpo: `AUDITOR é o único perfil pensado exclusivamente para leitura: você enxerga tudo que os outros perfis enxergam nas telas de Cidades & Infraestrutura, Propostas, Proponentes, Contratos, Assinaturas, Usuários, Alertas, Relatórios e, principalmente, Auditoria — mas nenhum botão de criar, editar, aprovar, rejeitar, arquivar, restaurar, desativar ou excluir fica disponível para esse perfil. Essa restrição não é só visual: mesmo que uma chamada à API fosse feita diretamente (contornando a tela), a mesma regra está implementada como Row-Level Security no banco de dados e bloqueia a escrita da mesma forma.
+
+Se você notar um botão de ação aparecendo indevidamente para o perfil AUDITOR, é uma falha de interface que vale reportar — mas mesmo nesse caso hipotético, a ação em si seria rejeitada pelo banco.`,
+      },
+      {
+        titulo: 'Auditoria — sua principal ferramenta de trabalho',
+        corpo: `A tela "Auditoria" (/auditoria) é o registro central de todo evento relevante do sistema: criação, edição, arquivamento, restauração, tentativas bloqueadas, aprovações, rejeições, assinaturas, validações, geração de contrato, exclusões físicas e exportações — cada linha mostra quem fez, quando, o valor anterior e o novo (quando aplicável) e o motivo informado. Use os filtros por entidade e ação para investigar um caso específico. A tabela de auditoria é estruturalmente imutável: nenhum perfil, nem ADMINISTRADOR, consegue alterar ou apagar um registro já gravado — o que você vê ali é garantidamente o que aconteceu, na ordem em que aconteceu.
+
+Cada proponente também tem sua própria aba "Histórico & Auditoria", já filtrada só para os eventos daquele registro — útil para reconstruir o histórico de um parceiro específico sem precisar aplicar filtros manualmente na tela geral.`,
+      },
+      {
+        titulo: 'Acompanhando o funil e os alertas',
+        corpo: `A tela "Alertas" mostra tudo que está pendente de tratamento no sistema — propostas/contratos parados, documentos recusados, reajustes vencendo, fim de carência, ativos não devolvidos, capacidade no limite e operações bloqueadas — uma boa visão panorâmica para identificar padrões (por exemplo, muitas tentativas de operação bloqueada de um mesmo usuário) sem precisar vasculhar a auditoria evento a evento. O botão "Gerar alertas" e "Marcar resolvido" não ficam disponíveis para este perfil — a leitura da lista, sim.`,
+      },
+      {
+        titulo: 'Relatórios',
+        corpo: `Os seis relatórios da tela "Relatórios" (Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes) estão disponíveis para consulta e exportação em CSV, com os mesmos dados que qualquer outro perfil autorizado a lê-los veria — nenhum relatório é filtrado ou resumido de forma diferente para AUDITOR.`,
+      },
+      {
+        titulo: 'Documento Interno x Externo',
+        corpo: `Ao visualizar uma proposta, o modo "Interna" mostra piso, desconto aplicado e status de governança; o modo "Externa" mostra só o que o parceiro veria. Como leitor, você pode alternar entre os dois modos livremente para conferir que a proposta correta foi enviada ao parceiro — mas a exportação/geração de arquivo, quando disponível para outros perfis, segue as mesmas trilhas de auditoria que você já consegue consultar.`,
       },
     ],
   },
@@ -264,11 +369,15 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
     slug: 'assinatura-eletronica',
     titulo: 'Como funciona a assinatura eletrônica',
     publico: null,
-    resumo: 'O caminho completo de uma proposta ou contrato até virar um documento assinado e validado com certificação ICP-Brasil — para qualquer perfil que precise entender o processo.',
+    resumo: 'O caminho completo de uma proposta ou contrato até virar um documento assinado — arquitetura pronta para ICP-Brasil, mas leia primeiro o status atual abaixo antes de assumir que a validação é criptograficamente real.',
     secoes: [
       {
+        titulo: 'STATUS ATUAL (leia antes de tudo): NÃO TESTADO com provedor real',
+        corpo: `Honestidade em primeiro lugar: hoje o motor de assinatura só tem um provedor de fato implementado — um MOCK de homologação, que nunca faz nenhuma chamada de rede real e nunca lida com um certificado digital de verdade. O tipo "ICP_BRASIL_PROVEDOR_EXTERNO" existe no cadastro de provedores e na arquitetura, mas NÃO tem nenhum código de integração por trás — tentar usá-lo hoje resulta em erro controlado (PROVEDOR_NAO_IMPLEMENTADO), nunca em uma assinatura real. Isso significa: nenhuma cadeia de certificado é validada, nenhum e-CPF/e-CNPJ é conferido, nenhum carimbo de tempo (timestamp authority) é aplicado, e o PDF final não é um PAdES de verdade. O rótulo "Assinatura Qualificada ICP-Brasil" em telas e relatórios é hoje uma POLÍTICA configurada no sistema (uma regra de negócio, sempre obrigatória para o Contrato de Cessão de Uso) — não uma prova criptográfica de que uma Autoridade Certificadora real validou algo. Use o ambiente de homologação (mock) para testar o fluxo operacional completo (criação de envelope, signatários, webhook, trilha de auditoria) com total confiança — mas nenhum documento "assinado" neste ambiente tem validade jurídica real até que um provedor ICP-Brasil de verdade seja integrado e testado.`,
+      },
+      {
         titulo: 'Visão geral: da proposta ao contrato ativo',
-        corpo: `1) Proposta aprovada. 2) Documento gerado a partir da proposta (ou do contrato/aditivo, conforme o caso). 3) Signatários definidos — sempre o responsável cadastrado no proponente, do lado do parceiro, e o representante da OptiMon do outro. 4) Envelope enviado para assinatura via o provedor de assinatura configurado. 5) Cada signatário assina digitalmente com certificação ICP-Brasil. 6) O OptiMon recebe a confirmação (webhook) do provedor e atualiza o status do envelope. 7) A assinatura é validada — o sistema confirma a integridade e a autenticidade do documento assinado junto ao provedor, nunca só assume que "existe uma rota" para isso. 8) Com a assinatura validada, o contrato pode ser ativado.`,
+        corpo: `1) Proposta aprovada. 2) Documento gerado a partir da proposta (ou do contrato/aditivo, conforme o caso). 3) Signatários definidos — sempre o responsável cadastrado no proponente, do lado do parceiro, e o representante da OptiMon do outro. 4) Envelope enviado para assinatura via o provedor de assinatura configurado (hoje, sempre o mock de homologação — ver status atual acima). 5) Cada signatário "assina" através do provedor configurado — com um provedor ICP-Brasil real (ainda não integrado), isso seria uma assinatura digital com certificação de verdade; com o mock atual, é uma simulação para testar o fluxo. 6) O OptiMon recebe a confirmação (webhook) do provedor e atualiza o status do envelope. 7) A assinatura é "validada" pelas regras de negócio do sistema (status de cada signatário, política aplicável) — isso NUNCA foi, até hoje, uma validação criptográfica junto a uma Autoridade Certificadora real, porque nenhuma foi integrada. 8) Com a assinatura validada (pelas regras acima), o contrato pode ser ativado.`,
       },
       {
         titulo: 'Arquitetura: nunca acoplado a um fornecedor específico',
@@ -284,7 +393,7 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
       },
       {
         titulo: 'Validando a assinatura',
-        corpo: `O botão "Validar assinatura" não é decorativo: ele consulta o provedor para confirmar que o documento assinado é íntegro e que a assinatura de cada signatário é autêntica, e só então marca o envelope como VALIDADO. Um envelope apenas "assinado" (ainda não validado) não libera a ativação do contrato — só um envelope validado libera.`,
+        corpo: `O botão "Validar assinatura" não é decorativo: ele consulta o provedor configurado e só marca o envelope como VALIDADO se o hash do documento estiver presente, o status do envelope for compatível e todos os signatários estiverem com status ASSINADO. Um envelope apenas "assinado" (ainda não validado) não libera a ativação do contrato — só um envelope validado libera. Importante (ver status atual no topo deste guia): com o provedor mock de hoje, essa checagem é uma verificação de consistência dos dados registrados no OptiMon — nunca uma verificação criptográfica de certificado junto a uma Autoridade Certificadora real, porque nenhum provedor ICP-Brasil real está integrado ainda.`,
       },
       {
         titulo: 'Baixando o documento assinado e a trilha de auditoria',
@@ -292,7 +401,7 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
       },
       {
         titulo: 'Política padrão para Contrato de Cessão de Uso',
-        corpo: `Para o Contrato de Cessão de Uso, a política de assinatura padrão é sempre Assinatura Qualificada ICP-Brasil — o nível mais alto de certificação, equivalente a uma assinatura de próprio punho reconhecida em cartório. Essa regra é fixa no sistema e não pode ser alterada por COMERCIAL nem por nenhum outro perfil comercial; só ADMINISTRADOR/DIRETOR configuram o provedor, e mesmo assim a política mínima para esse tipo de documento não muda.`,
+        corpo: `Para o Contrato de Cessão de Uso, a política de assinatura configurada é sempre Assinatura Qualificada ICP-Brasil — a mais alta prevista pelo sistema, e a regra é fixa: não pode ser alterada por COMERCIAL nem por nenhum outro perfil comercial, só ADMINISTRADOR/DIRETOR configuram o provedor, e mesmo assim essa política mínima não muda. Isso garante que o sistema NUNCA aceitará silenciosamente uma política mais fraca para este tipo de documento assim que um provedor ICP-Brasil real for integrado — mas até lá (ver status atual no topo deste guia), essa política é aplicada sobre o provedor mock de homologação, então nenhum documento assinado hoje tem o nível de certificação que o rótulo sugere.`,
       },
     ],
   },

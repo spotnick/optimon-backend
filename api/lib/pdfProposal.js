@@ -5,8 +5,20 @@
 // navegador" — o documento é montado programaticamente a partir do modelo de 28 seções
 // (proposalDocumentModel.js), a mesma fonte usada pelo DOCX.
 
+const path = require('path');
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
 const { buildProposalDocumentModel, fmtBRL, fmtPct, fmtInt, fmtDate } = require('./proposalDocumentModel');
+
+// Fase 3 (item 3.5): logo real da OptiMon (assets gerados pelo projeto, ver item 3.4 —
+// web/public/branding/), embutida na capa (PDF só embute raster, não SVG — pdfkit).
+// Nunca falha a geração do documento se o arquivo não existir por algum motivo (ex.:
+// ambiente sem o diretório web/public ainda publicado) — cai de volta para o texto
+// "OPTIMON" simples, como era antes desta correção.
+const LOGO_DARK_PATH = path.join(__dirname, '..', '..', 'web', 'public', 'branding', 'optimon-logo-lockup-dark.png');
+const LOGO_ICON_PATH = path.join(__dirname, '..', '..', 'web', 'public', 'branding', 'optimon-icon-192.png');
+const LOGO_DARK_AVAILABLE = fs.existsSync(LOGO_DARK_PATH);
+const LOGO_ICON_AVAILABLE = fs.existsSync(LOGO_ICON_PATH);
 
 const INK = '#1a2332';
 const MUTED = '#5b6b7f';
@@ -18,8 +30,13 @@ const PAGE_MARGIN = 50;
 function drawHeaderFooter(doc, model, pageIndex, pageCount) {
   const { width, height } = doc.page;
   // Header
+  let textStartX = PAGE_MARGIN;
+  if (LOGO_ICON_AVAILABLE) {
+    doc.image(LOGO_ICON_PATH, PAGE_MARGIN, 18, { width: 14, height: 14 });
+    textStartX = PAGE_MARGIN + 20;
+  }
   doc.fontSize(8).fillColor(MUTED).font('Helvetica-Bold')
-    .text('OPTIMON', PAGE_MARGIN, 24, { continued: true })
+    .text('OPTIMON', textStartX, 24, { continued: true })
     .font('Helvetica').fillColor(MUTED)
     .text(`  |  Proposta Comercial ${model.numero || ''} (V${model.numero_versao || 1})`, { continued: false });
   doc.fontSize(8).fillColor(MUTED)
@@ -27,9 +44,19 @@ function drawHeaderFooter(doc, model, pageIndex, pageCount) {
   doc.moveTo(PAGE_MARGIN, 38).lineTo(width - PAGE_MARGIN, 38).strokeColor(LINE).lineWidth(0.5).stroke();
   // Footer
   doc.moveTo(PAGE_MARGIN, height - 40).lineTo(width - PAGE_MARGIN, height - 40).strokeColor(LINE).lineWidth(0.5).stroke();
+  // CORREÇÃO (Fase 3, item 3.7 — bug encontrado ao testar o gerador de minuta de
+  // contrato, que copiou este mesmo padrão): o texto do rodapé fica DENTRO da margem
+  // inferior reservada pelo PDFDocument (margin:50). Chamar .text() ali disparava a
+  // paginação automática do pdfkit — cada página do documento ganhava 1-2 páginas EXTRA
+  // em branco (uma proposta de ~8 páginas de conteúdo real virava 22 páginas no PDF
+  // final). Zera margins.bottom só durante este desenho pontual do rodapé e restaura
+  // logo em seguida — não muda nenhum texto/posição visível, só evita o auto-pagebreak.
+  const savedBottom = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc.fontSize(8).fillColor(MUTED)
     .text(`Gerado em ${fmtDate(new Date().toISOString())} — válido até ${fmtDate(model.data_validade)}`, PAGE_MARGIN, height - 30, { width: width - 2 * PAGE_MARGIN - 80 });
   doc.text(`Página ${pageIndex + 1} de ${pageCount}`, width - PAGE_MARGIN - 80, height - 30, { width: 80, align: 'right' });
+  doc.page.margins.bottom = savedBottom;
 }
 
 function ensureSpace(doc, needed) {
@@ -104,7 +131,13 @@ function renderCoverPage(doc, model) {
   doc.rect(0, 0, width, height).fill('#0e6e55');
   doc.rect(0, height - 180, width, 180).fill('#0a5341');
 
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(30).text('OPTIMON', PAGE_MARGIN, 90);
+  if (LOGO_DARK_AVAILABLE) {
+    // Proporção real do arquivo (1350x250) — largura fixa, altura calculada para nunca
+    // distorcer a marca.
+    doc.image(LOGO_DARK_PATH, PAGE_MARGIN, 78, { width: 230 });
+  } else {
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(30).text('OPTIMON', PAGE_MARGIN, 90);
+  }
   doc.fontSize(12).font('Helvetica').fillColor('#d8f2e9').text('Infraestrutura de Rede Óptica — Cessão de Rede', PAGE_MARGIN, 128);
 
   doc.fontSize(26).font('Helvetica-Bold').fillColor('#ffffff').text('Proposta Comercial', PAGE_MARGIN, 260, { width: width - 2 * PAGE_MARGIN });

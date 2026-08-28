@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import ArchiveModal from '../components/ArchiveModal';
 import UserEditModal from '../components/UserEditModal';
+import HardDeleteUserModal from '../components/HardDeleteUserModal';
 
 // Fase 2.5.1 (seções 1-8): fluxo CORRIGIDO — nunca mais pede UUID de
 // auth.users ao administrador. "+ Novo Usuário" cria a identidade no
@@ -54,6 +55,7 @@ export default function Users() {
   const [formErrorState, setFormErrorState] = useState(null); // 'C_AUTH_ORFAO' etc — ver api/routes/users.js
   const [editTarget, setEditTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null); // { user, mode: 'archive'|'restore' }
+  const [hardDeleteTarget, setHardDeleteTarget] = useState(null); // Fase 3 (item 3.8)
   const [busyId, setBusyId] = useState(null);
   const [health, setHealth] = useState(null); // Fase 2.5.3 — indicador de integridade
 
@@ -266,6 +268,9 @@ export default function Users() {
                                     {busyId === u.id ? '…' : 'Redefinir acesso'}
                                   </button>
                                 )}
+                                <button className="btn btn-danger" style={{ opacity: 0.85 }} onClick={() => setHardDeleteTarget(u)} title="Exclusão física — remove o cadastro de verdade, só permitido se não houver nenhum histórico vinculado">
+                                  Excluir Fisicamente
+                                </button>
                               </>
                             )}
                           </div>
@@ -308,6 +313,19 @@ export default function Users() {
               await api.users.reactivate(archiveTarget.user.id, { motivo: body.motivo });
             }
             setArchiveTarget(null);
+            load();
+          }}
+        />
+      )}
+
+      {hardDeleteTarget && (
+        <HardDeleteUserModal
+          user={hardDeleteTarget}
+          onCancel={() => setHardDeleteTarget(null)}
+          onConfirm={async ({ motivo }) => {
+            const result = await api.users.hardDelete(hardDeleteTarget.id, { motivo });
+            setHardDeleteTarget(null);
+            setNotice(result.auth_warning || result.message || 'Usuário excluído fisicamente com sucesso.');
             load();
           }}
         />

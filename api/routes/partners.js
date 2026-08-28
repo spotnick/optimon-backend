@@ -178,15 +178,17 @@ router.post('/:id/reactivate', (req, res) => setPartnerActive(req, res, true));
 
 const RESPONSAVEL_FIELDS = 'id, parceiro_id, nome, cpf, cargo, departamento, email, telefone, whatsapp, tipo, representante_legal, documento_comprobatorio_id, ativo, criado_em, atualizado_em';
 
-// GET /api/partners/:id/responsaveis
+// GET /api/partners/:id/responsaveis?incluir_removidos=true — Fase 3 (item 3.9):
+// por padrão só traz responsáveis ativos (removido_em is null, mesmo comportamento de
+// sempre), mas agora aceita incluir_removidos=true para a tela poder oferecer
+// "Restaurar" — sem esse parâmetro, um responsável removido ficava permanentemente
+// invisível, sem nenhuma forma de reencontrá-lo pela UI (gap encontrado ao auditar
+// completude de CRUD).
 router.get('/:id/responsaveis', async (req, res) => {
   const supabase = clientForRequest(req.userJwt);
-  const { data, error } = await supabase
-    .from('parceiros_responsaveis')
-    .select(RESPONSAVEL_FIELDS)
-    .eq('parceiro_id', req.params.id)
-    .is('removido_em', null)
-    .order('nome');
+  let query = supabase.from('parceiros_responsaveis').select(RESPONSAVEL_FIELDS).eq('parceiro_id', req.params.id);
+  if (req.query.incluir_removidos !== 'true') query = query.is('removido_em', null);
+  const { data, error } = await query.order('nome');
   if (error) return handleError(res, error);
   return res.json(data);
 });
@@ -251,6 +253,25 @@ router.delete('/:id/responsaveis/:respId', async (req, res) => {
   const { data, error } = await supabase
     .from('parceiros_responsaveis')
     .update({ ativo: false, removido_em: new Date().toISOString() })
+    .eq('id', req.params.respId)
+    .eq('parceiro_id', req.params.id)
+    .select(RESPONSAVEL_FIELDS)
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  if (!data) return res.status(404).json({ error: `Responsável ${req.params.respId} não encontrado.` });
+  return res.json(data);
+});
+
+// POST /api/partners/:id/responsaveis/:respId/restore — Fase 3 (item 3.9): restaura um
+// responsável removido (limpa removido_em, reativa). Rota dedicada em vez de aceitar
+// removido_em na whitelist do PATCH acima — removido_em nunca é um campo livremente
+// setável pelo cliente, só por um caminho controlado e explícito, mesmo padrão de
+// restauração já usado para cidades/POPs/segmentos em outras telas do sistema.
+router.post('/:id/responsaveis/:respId/restore', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase
+    .from('parceiros_responsaveis')
+    .update({ ativo: true, removido_em: null })
     .eq('id', req.params.respId)
     .eq('parceiro_id', req.params.id)
     .select(RESPONSAVEL_FIELDS)

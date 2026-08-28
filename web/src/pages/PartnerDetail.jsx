@@ -16,7 +16,7 @@ const CADASTRO_FIELDS = [
 ];
 
 function emptyResponsavel() {
-  return { nome: '', cpf: '', cargo: '', email: '', telefone: '', tipo: 'REPRESENTANTE_LEGAL', representante_legal: false };
+  return { nome: '', cpf: '', cargo: '', departamento: '', email: '', telefone: '', whatsapp: '', tipo: 'REPRESENTANTE_LEGAL', representante_legal: false };
 }
 
 export default function PartnerDetail() {
@@ -42,6 +42,8 @@ export default function PartnerDetail() {
   const [respForm, setRespForm] = useState(emptyResponsavel());
   const [savingResp, setSavingResp] = useState(false);
   const [respError, setRespError] = useState(null);
+  const [editingRespId, setEditingRespId] = useState(null); // Fase 3 (item 3.9): edição de responsável já existente
+  const [incluirRemovidos, setIncluirRemovidos] = useState(false); // idem — mostrar responsáveis removidos, com opção de restaurar
 
   const [docTipo, setDocTipo] = useState(TIPOS_DOCUMENTO[0]);
   const [docTitulo, setDocTitulo] = useState('');
@@ -52,14 +54,14 @@ export default function PartnerDetail() {
 
   function load() {
     api.partners.get(id).then((p) => { setPartner(p); setCadastroForm(p); }).catch((err) => setError(err.message));
-    api.partners.responsaveis(id).then(setResponsaveis).catch((err) => setError(err.message));
+    api.partners.responsaveis(id, incluirRemovidos).then(setResponsaveis).catch((err) => setError(err.message));
     api.partners.documentos(id).then(setDocumentos).catch((err) => setError(err.message));
     // Fase 2.5.1 seção 11: abas Propostas/Contratos/Histórico-Auditoria.
     api.proposals.list({ parceiro_id: id, todas_versoes: 'true' }).then(setPropostas).catch(() => setPropostas([]));
     api.contracts.list('TODOS').then((all) => setContratos((all || []).filter((c) => c.parceiro_id === id))).catch(() => setContratos([]));
     api.audit.list({ entidade: 'parceiros', entidade_id: id, limit: 50 }).then(setHistorico).catch(() => setHistorico([]));
   }
-  useEffect(load, [id]);
+  useEffect(load, [id, incluirRemovidos]);
 
   async function handleSaveCadastro(e) {
     e.preventDefault();
@@ -80,19 +82,62 @@ export default function PartnerDetail() {
     }
   }
 
-  async function handleAddResponsavel(e) {
+  async function handleSaveResponsavel(e) {
     e.preventDefault();
     setRespError(null);
     setSavingResp(true);
     try {
-      await api.partners.addResponsavel(id, respForm);
+      if (editingRespId) {
+        await api.partners.updateResponsavel(id, editingRespId, respForm);
+      } else {
+        await api.partners.addResponsavel(id, respForm);
+      }
       setRespForm(emptyResponsavel());
       setShowRespForm(false);
+      setEditingRespId(null);
       load();
     } catch (err) {
       setRespError(err instanceof ApiError ? err.message : 'Erro inesperado.');
     } finally {
       setSavingResp(false);
+    }
+  }
+
+  function startEditResponsavel(r) {
+    setRespForm({
+      nome: r.nome || '', cpf: r.cpf || '', cargo: r.cargo || '', departamento: r.departamento || '',
+      email: r.email || '', telefone: r.telefone || '', whatsapp: r.whatsapp || '',
+      tipo: r.tipo, representante_legal: !!r.representante_legal,
+    });
+    setEditingRespId(r.id);
+    setRespError(null);
+    setShowRespForm(true);
+  }
+
+  function cancelResponsavelForm() {
+    setShowRespForm(false);
+    setEditingRespId(null);
+    setRespForm(emptyResponsavel());
+    setRespError(null);
+  }
+
+  async function handleRemoveResponsavel(r) {
+    setRespError(null);
+    try {
+      await api.partners.removeResponsavel(id, r.id);
+      load();
+    } catch (err) {
+      setRespError(err instanceof ApiError ? err.message : 'Erro inesperado.');
+    }
+  }
+
+  async function handleRestoreResponsavel(r) {
+    setRespError(null);
+    try {
+      await api.partners.restoreResponsavel(id, r.id);
+      load();
+    } catch (err) {
+      setRespError(err instanceof ApiError ? err.message : 'Erro inesperado.');
     }
   }
 
@@ -186,23 +231,34 @@ export default function PartnerDetail() {
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <h3 style={{ margin: 0 }}>Responsáveis</h3>
-          <button className="btn btn-secondary" onClick={() => setShowRespForm((s) => !s)}>{showRespForm ? 'Cancelar' : '+ Adicionar responsável'}</button>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted, #666)' }}>
+              <input type="checkbox" checked={incluirRemovidos} onChange={(e) => setIncluirRemovidos(e.target.checked)} />
+              Mostrar removidos
+            </label>
+            <button className="btn btn-secondary" onClick={() => (showRespForm ? cancelResponsavelForm() : setShowRespForm(true))}>
+              {showRespForm ? 'Cancelar' : '+ Adicionar responsável'}
+            </button>
+          </div>
         </div>
         <p style={{ color: 'var(--text-muted, #666)' }}>
           Marcar "Representante legal" é só um indicador de papel — poder de assinar só é reconhecido com um documento comprobatório anexado (Contrato Social/Procuração/Ata).
         </p>
         {showRespForm && (
-          <form onSubmit={handleAddResponsavel} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+          <form onSubmit={handleSaveResponsavel} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
             {respError && <div className="error-banner" style={{ gridColumn: 'span 3' }}>{respError}</div>}
+            {editingRespId && <div style={{ gridColumn: 'span 3', color: 'var(--text-muted, #666)', fontSize: 13 }}>Editando responsável existente — a classificação (Tipo) também pode ser corrigida aqui.</div>}
             <div className="field"><label>Nome *</label><input required value={respForm.nome} onChange={(e) => setRespForm({ ...respForm, nome: e.target.value })} /></div>
             <div className="field"><label>CPF</label><input value={respForm.cpf} onChange={(e) => setRespForm({ ...respForm, cpf: e.target.value })} /></div>
             <div className="field"><label>Cargo</label><input value={respForm.cargo} onChange={(e) => setRespForm({ ...respForm, cargo: e.target.value })} /></div>
+            <div className="field"><label>Departamento</label><input value={respForm.departamento} onChange={(e) => setRespForm({ ...respForm, departamento: e.target.value })} /></div>
             <div className="field"><label>E-mail</label><input value={respForm.email} onChange={(e) => setRespForm({ ...respForm, email: e.target.value })} /></div>
             <div className="field"><label>Telefone</label><input value={respForm.telefone} onChange={(e) => setRespForm({ ...respForm, telefone: e.target.value })} /></div>
+            <div className="field"><label>WhatsApp</label><input value={respForm.whatsapp} onChange={(e) => setRespForm({ ...respForm, whatsapp: e.target.value })} /></div>
             <div className="field">
-              <label>Tipo *</label>
+              <label>Tipo (classificação) *</label>
               <select value={respForm.tipo} onChange={(e) => setRespForm({ ...respForm, tipo: e.target.value })}>
                 {TIPOS_RESPONSAVEL.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
@@ -211,21 +267,25 @@ export default function PartnerDetail() {
               <input type="checkbox" checked={respForm.representante_legal} onChange={(e) => setRespForm({ ...respForm, representante_legal: e.target.checked })} />
               Indicar como representante legal (papel — não confere poder por si só)
             </label>
-            <div style={{ gridColumn: 'span 3' }}><button type="submit" className="btn btn-primary" disabled={savingResp}>{savingResp ? 'Salvando…' : 'Salvar responsável'}</button></div>
+            <div style={{ gridColumn: 'span 3' }}>
+              <button type="submit" className="btn btn-primary" disabled={savingResp}>{savingResp ? 'Salvando…' : editingRespId ? 'Salvar alterações' : 'Salvar responsável'}</button>
+            </div>
           </form>
         )}
         {!responsaveis ? <div className="spinner" /> : responsaveis.length === 0 ? (
           <div className="empty-state">Nenhum responsável cadastrado.</div>
         ) : (
           <table>
-            <thead><tr><th>Nome</th><th>Tipo</th><th>Cargo</th><th>E-mail</th><th>Repr. legal?</th><th>Documento comprobatório</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Tipo</th><th>Cargo</th><th>Departamento</th><th>E-mail</th><th>Telefone/WhatsApp</th><th>Repr. legal?</th><th>Documento comprobatório</th><th>Status</th><th>Ações</th></tr></thead>
             <tbody>
               {responsaveis.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} style={!r.ativo ? { opacity: 0.6 } : undefined}>
                   <td>{r.nome}</td>
                   <td>{r.tipo}</td>
                   <td>{r.cargo || '—'}</td>
+                  <td>{r.departamento || '—'}</td>
                   <td>{r.email || '—'}</td>
+                  <td>{r.telefone || r.whatsapp ? [r.telefone, r.whatsapp && `WhatsApp: ${r.whatsapp}`].filter(Boolean).join(' — ') : '—'}</td>
                   <td>{r.representante_legal ? 'Sim (papel)' : '—'}</td>
                   <td>
                     {r.documento_comprobatorio_id ? (
@@ -238,6 +298,19 @@ export default function PartnerDetail() {
                     ) : (
                       <span className="badge status-block">Nenhum — sem poder atestado</span>
                     )}
+                  </td>
+                  <td><span className={`badge ${r.ativo ? 'status-allow' : 'status-block'}`}>{r.ativo ? 'Ativo' : 'Removido'}</span></td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {r.ativo ? (
+                        <>
+                          <button className="btn btn-secondary" onClick={() => startEditResponsavel(r)}>Editar</button>
+                          <button className="btn btn-danger" onClick={() => handleRemoveResponsavel(r)}>Remover</button>
+                        </>
+                      ) : (
+                        <button className="btn btn-primary" onClick={() => handleRestoreResponsavel(r)}>Restaurar</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

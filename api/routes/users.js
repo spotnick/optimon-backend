@@ -91,11 +91,11 @@ function handleError(res, error) {
     status = 501;
   } else if (/PERMISSAO_NEGADA/i.test(message) || /row-level security|permission denied/i.test(message)) {
     status = 403;
-  } else if (/não encontrad/i.test(message)) {
+  } else if (/não encontrad|NAO_ENCONTRADO/i.test(message)) {
     status = 404;
   } else if (/duplicate key|already exists|unique constraint|already been registered|already registered/i.test(message)) {
     status = 409;
-  } else if (/obrigatóri|inválido|violates check constraint|foreign key/i.test(message)) {
+  } else if (/obrigatóri|inválido|violates check constraint|foreign key|MOTIVO_OBRIGATORIO|USUARIO_POSSUI_HISTORICO|ULTIMO_ADMINISTRADOR|NAO_PERMITIDO/i.test(message)) {
     status = 400;
   } else {
     status = 409;
@@ -715,6 +715,58 @@ async function setUserActive(req, res, ativo) {
 }
 router.post('/:id/deactivate', (req, res) => setUserActive(req, res, false));
 router.post('/:id/reactivate', (req, res) => setUserActive(req, res, true));
+
+// POST /api/users/:id/hard-delete — Fase 3 (item 3.8): EXCLUSÃO FÍSICA CONTROLADA (só
+// ADMINISTRADOR — "OWNER" do prompt-mestre mapeia para ADMINISTRADOR, único perfil deste
+// RBAC com esse nível de privilégio). Diferente de /deactivate (soft-delete, sempre
+// disponível e preserva tudo), isto REMOVE de verdade a linha de public.usuarios — só
+// permitido quando o usuário não tem NENHUM vínculo em auditoria/aprovações/criações em
+// nenhuma das ~19 tabelas que referenciam usuarios(id) (ver
+// app.excluir_usuario_fisicamente, migration 20260926090000, para a lista completa e o
+// motivo: a auditoria é imutável, então a exclusão física nunca pode "abrir espaço"
+// apagando ou alterando uma linha de auditoria — ela é bloqueada em vez disso). Toda a
+// validação (motivo obrigatório, nunca a si mesmo, nunca o último ADMINISTRADOR ativo, a
+// varredura de vínculos, o registro em auditoria ANTES do DELETE) vive inteiramente na
+// função SQL — esta rota só expõe a RPC já testada via psql, sem reimplementar nenhuma
+// regra aqui (mesmo padrão de contracts.js).
+//
+// Depois que o perfil em public.usuarios é removido com sucesso, a rota tenta também
+// remover a IDENTIDADE em auth.users (Supabase Auth) — só possível agora, porque a FK
+// `usuarios.id references auth.users(id) on delete restrict` impedia isso enquanto o
+// perfil existisse. Essa segunda chamada usa a Auth Admin API (mesma exceção documentada
+// no cabeçalho deste arquivo) e nunca é obrigatória para a resposta ser 200: se falhar ou
+// a Admin API não estiver configurada, a resposta inclui `auth_warning` — igual ao
+// graceful degradation já usado em /deactivate e /reactivate — nunca esconde a limitação,
+// nunca bloqueia a exclusão do perfil que já teve sucesso.
+router.post('/:id/hard-delete', async (req, res) => {
+  try {
+    await assertAdmin(req);
+  } catch (err) {
+    return handleError(res, err);
+  }
+  const { motivo } = req.body || {};
+  if (!motivo || !String(motivo).trim()) {
+    return res.status(400).json({ error: 'MOTIVO_OBRIGATORIO: a exclusão física exige um motivo explícito.' });
+  }
+
+  const supabase = clientForRequest(req.userJwt);
+  const { error } = await supabase.rpc('pricing_usuario_excluir_fisicamente', { p_usuario_id: req.params.id, p_motivo: motivo });
+  if (error) return handleError(res, error);
+
+  let authWarning;
+  if (adminAuthAvailable()) {
+    try {
+      const { error: delErr } = await adminAuth().deleteUser(req.params.id);
+      if (delErr) throw delErr;
+    } catch (err) {
+      authWarning = `Cadastro excluído com sucesso, mas não foi possível remover a identidade correspondente na Auth: ${err.message}. Remova manualmente no painel do Supabase, se necessário.`;
+    }
+  } else {
+    authWarning = 'Cadastro excluído com sucesso. A Auth Admin API não está configurada neste ambiente — a identidade em auth.users precisa ser removida manualmente no painel do Supabase.';
+  }
+
+  return res.json({ message: 'Usuário excluído fisicamente com sucesso.', auth_warning: authWarning });
+});
 
 // POST /api/users — CAMINHO DE RECUPERAÇÃO (não é mais o fluxo principal —
 // ver /invite acima). Mantido para completar manualmente o cadastro de um id

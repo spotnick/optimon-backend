@@ -8,11 +8,20 @@
 // (mesma decisão arquitetural do PDF via pdfkit). O PDF continua sendo a versão com os
 // gráficos desenhados como vetor.
 
+const path = require('path');
+const fs = require('fs');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
-  WidthType, Header, Footer, PageNumber, AlignmentType, BorderStyle, ShadingType,
+  WidthType, Header, Footer, PageNumber, AlignmentType, BorderStyle, ShadingType, ImageRun,
 } = require('docx');
 const { buildProposalDocumentModel, fmtBRL, fmtPct, fmtInt, fmtDate } = require('./proposalDocumentModel');
+
+// Fase 3 (item 3.5): logo real da OptiMon na capa do DOCX (assets gerados pelo projeto,
+// ver item 3.4 — web/public/branding/). Nunca falha a geração se o arquivo não existir —
+// cai de volta para o texto "OPTIMON" simples, como era antes desta correção.
+const LOGO_PATH = path.join(__dirname, '..', '..', 'web', 'public', 'branding', 'optimon-logo-lockup.png');
+const LOGO_AVAILABLE = fs.existsSync(LOGO_PATH);
+const LOGO_ASPECT = 1350 / 250; // proporção real do arquivo gerado (item 3.4) — nunca distorcer.
 
 const ACCENT = '0E6E55';
 const ACCENT_LIGHT = 'E4F2EE';
@@ -119,8 +128,19 @@ async function generateProposalDocx(proposta, opts = {}) {
     })],
   });
 
+  const logoParagraph = LOGO_AVAILABLE
+    ? new Paragraph({
+        spacing: { after: 120 },
+        children: [new ImageRun({
+          data: fs.readFileSync(LOGO_PATH),
+          transformation: { width: 260, height: Math.round(260 / LOGO_ASPECT) },
+          type: 'png',
+        })],
+      })
+    : new Paragraph({ text: 'OPTIMON', spacing: { after: 40 }, run: { size: 56, bold: true, color: ACCENT } });
+
   const capa = [
-    new Paragraph({ text: 'OPTIMON', spacing: { after: 40 }, run: { size: 56, bold: true, color: ACCENT } }),
+    logoParagraph,
     new Paragraph({ text: 'Infraestrutura de Rede Óptica — Cessão de Rede', spacing: { after: 400 }, run: { size: 22, color: MUTED } }),
     new Paragraph({ text: 'Proposta Comercial', heading: HeadingLevel.TITLE, spacing: { after: 80 } }),
     new Paragraph({ text: model.modo === 'INTERNA' ? 'Documento de uso interno' : 'Documento para o parceiro', spacing: { after: 400 }, run: { size: 24, color: MUTED } }),
