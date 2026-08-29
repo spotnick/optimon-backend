@@ -2,6 +2,10 @@
 // Fase 2.5.1 (seção 29): acrescenta as perguntas sobre o novo fluxo de usuário sem
 // UUID, onde a senha fica guardada, proponente/exclusão lógica, alteração de contrato
 // e o que significa uma assinatura validada.
+// Fase 3.8 (item 3.8-16): acrescenta as perguntas sobre a reserva formal de Prefeitura/
+// órgão público, o workflow de exceção de fibra de terceiros/rede própria, como encerrar
+// ou rescindir um contrato, o que significa a receita rateada por POP, e o novo número
+// de seções da minuta.
 
 export const FAQ = [
   {
@@ -75,5 +79,25 @@ export const FAQ = [
   {
     pergunta: 'Por que a projeção de 60 meses aparece marcada como "projeção"?',
     resposta: 'O prazo contratual mínimo padrão é 48 meses. Qualquer horizonte além disso (como 60 meses) é sempre uma estimativa ilustrativa, não um compromisso contratual.',
+  },
+  {
+    pergunta: 'Por que uma Prefeitura recebe uma cláusula diferente no contrato?',
+    resposta: 'Desde a Fase 3.8, um cliente reservado pode ter o tipo PREFEITURA/ORGAO_PUBLICO — nesse caso a minuta gera uma cláusula própria fundamentada em interesse público, nunca tratada como uma reserva comercial comum (tipo OUTRO). É uma distinção jurídica deliberada, não apenas uma etiqueta.',
+  },
+  {
+    pergunta: 'Posso liberar um parceiro para usar fibra de terceiros ou construir rede própria?',
+    resposta: 'Só através do workflow formal de exceção: a solicitação passa obrigatoriamente por parecer da Engenharia, parecer do Comercial e decisão final da Diretoria, nessa ordem. Enquanto não há uma aprovação vigente para aquele contrato, a proibição padrão continua valendo integralmente — não existe liberação verbal ou por fora do sistema.',
+  },
+  {
+    pergunta: 'Como encerro ou rescindo um contrato?',
+    resposta: 'Na tela de detalhe do contrato (para contratos ATIVO ou SUSPENSO), use o botão "Encerrar/Rescindir contrato", escolha o tipo (ENCERRADO ou RESCINDIDO) e informe um motivo — obrigatório. A ação fica registrada na auditoria com o motivo e a data efetiva de encerramento, e o contrato deixa de poder ser ativado novamente.',
+  },
+  {
+    pergunta: 'O que significa a "receita mensal rateada" no relatório de Capacidade por POP?',
+    resposta: 'É uma estimativa: para contratos que usam mais de um POP (Multi-POP), a mensalidade mínima contratada é distribuída entre os POPs proporcionalmente à capacidade de clientes de cada vínculo. Não é faturamento real medido — o OptiMon não recebe dados de consumo/faturamento efetivo por POP (isso depende da integração HubSoft, fora de escopo). A tela sempre explica a metodologia usada ao lado do número.',
+  },
+  {
+    pergunta: 'Quantas seções tem a minuta de contrato gerada pelo sistema?',
+    resposta: '44 seções, cobrindo desde Definições e Objeto até Foro e Disposições Gerais — incluindo cláusulas com texto jurídico definitivo (quando derivam de dados/regras já existentes no sistema) e cláusulas ainda marcadas "[CLÁUSULA-MODELO — AGUARDANDO REDAÇÃO DO JURÍDICO DA NICK]" para os pontos que dependem de redação jurídica específica. Em ambos os casos, a minuta inteira continua sujeita a aprovação jurídica antes de virar documento assinável.',
   },
 ];

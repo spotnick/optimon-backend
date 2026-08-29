@@ -23,9 +23,12 @@ const LOGO_PATH = path.join(__dirname, '..', '..', 'web', 'public', 'branding', 
 const LOGO_AVAILABLE = fs.existsSync(LOGO_PATH);
 const LOGO_ASPECT = 1350 / 250; // proporção real do arquivo gerado (item 3.4) — nunca distorcer.
 
-const ACCENT = '0E6E55';
-const ACCENT_LIGHT = 'E4F2EE';
-const INK = '1A2332';
+// Fase 3.8 (item 1/2 — identidade visual): paleta oficial OptiMon (mesma do PDF de
+// proposta, pdfProposal.js) — antes usava um verde inventado (0E6E55) sem relação
+// com a marca real (frontend/logo).
+const ACCENT = '0D9488';
+const ACCENT_LIGHT = 'E1F5F1';
+const INK = '06263F';
 const MUTED = '5B6B7F';
 
 function noBorders() {

@@ -19,31 +19,16 @@
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 0 8px 24px;
 }
 
-.sidebar-brand .mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  flex-shrink: 0;
+/* Fase 3.8 (item 1): lockup completo (ícone + "OptiMon" + tagline, já embutidos
+   na própria arte SVG — nunca recriar como texto solto) em vez do ícone
+   isolado + texto duplicado. viewBox do asset é 540x100 (proporção ~5.4:1). */
+.sidebar-brand .lockup {
+  width: 176px;
+  height: auto;
   display: block;
-}
-
-.sidebar-brand .name {
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 1.05rem;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-}
-
-.sidebar-brand .tagline {
-  font-size: 0.65rem;
-  color: #93a7c2;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .nav-link {

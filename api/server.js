@@ -25,6 +25,7 @@ const usersRoutes = require('./routes/users');
 const { router: signaturesRoutes, webhookRouter: signaturesWebhookRoutes } = require('./routes/signatures');
 const contractsRoutes = require('./routes/contracts');
 const reportsRoutes = require('./routes/reports');
+const assetsRoutes = require('./routes/assets');
 const { getVersionInfo } = require('./lib/version');
 
 const app = express();
@@ -78,6 +79,7 @@ app.use('/api/users', requireAuth, usersRoutes);
 app.use('/api/signatures', requireAuth, signaturesRoutes);
 app.use('/api/contracts', requireAuth, contractsRoutes);
 app.use('/api/reports', requireAuth, reportsRoutes);
+app.use('/api/assets', requireAuth, assetsRoutes);
 
 // GET /health — seção 6/40: contrato exato exigido pelo checklist de deploy.
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'optimon-api' }));

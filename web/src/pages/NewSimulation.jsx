@@ -9,7 +9,12 @@ import { formatCurrencyFull } from '../components/charts/chartUtils';
 import HelpTooltip from '../components/HelpTooltip';
 
 const QUICK_CLIENTS = [10, 25, 50, 100, 128, 129, 200, 256, 384, 500, 1000];
-const COMPOSICAO_MODES = ['MAX', 'FLOOR_ONLY', 'MINIMUM_ONLY', 'FLOOR_AS_MINIMUM', 'SUM'];
+// Fase 3.8 (item 3): "MAX" (greatest(piso, revenue share)) foi identificado como a
+// inconsistência a corrigir no modelo econômico oficial e removido das opções — o
+// modelo passa a ser sempre MÍNIMO/PISO + REVENUE SHARE (somado). FLOOR_ONLY e
+// MINIMUM_ONLY continuam por não implementarem MAX (servem casos sem componente de
+// Revenue Share, ex.: Dark Fiber) — ver comentário de app.get_economia_com_piso.
+const COMPOSICAO_MODES = ['FLOOR_AS_MINIMUM', 'FLOOR_ONLY', 'MINIMUM_ONLY', 'SUM'];
 
 function Field({ label, children }) {
   return (
@@ -32,7 +37,7 @@ export default function NewSimulation() {
   const [arpu, setArpu] = useState(100);
   const [faturamentoOverride, setFaturamentoOverride] = useState('');
   const [revenueSharePct, setRevenueSharePct] = useState(0.12);
-  const [composicaoMode, setComposicaoMode] = useState('MAX');
+  const [composicaoMode, setComposicaoMode] = useState('FLOOR_AS_MINIMUM');
   const [prazoMeses, setPrazoMeses] = useState(48);
   const [carenciaMeses, setCarenciaMeses] = useState(0);
   const [reajusteIndice, setReajusteIndice] = useState('IPCA');

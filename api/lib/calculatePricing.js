@@ -23,7 +23,9 @@
  * @param {number} [input.arpu]
  * @param {number} [input.faturamento] — se omitido, o banco calcula clientes × arpu.
  * @param {number} [input.revenue_share_pct] — default 0.12 (12%, seção 20).
- * @param {string} [input.composicao_mode] — FLOOR_ONLY|MINIMUM_ONLY|FLOOR_AS_MINIMUM|MAX|SUM (default MAX).
+ * @param {string} [input.composicao_mode] — FLOOR_ONLY|MINIMUM_ONLY|FLOOR_AS_MINIMUM|SUM (default FLOOR_AS_MINIMUM
+ *   — Fase 3.8 item 3: "MAX" foi identificado como a inconsistência do modelo econômico
+ *   a corrigir e removido; o modelo oficial agora é sempre mínimo/piso + revenue share).
  * @param {number} [input.preco_proposto] — se omitido, o banco usa o RECOMENDADO.
  * @param {number} [input.pons_count] — se omitido, o banco deriva de clientes (ceil(clientes/128)).
  * @param {string} [input.pricing_version] — se omitido, usa a versão vigente.
@@ -41,7 +43,7 @@ async function calculatePricing(supabase, input) {
     arpu: input.arpu ?? 0,
     faturamento: input.faturamento ?? null,
     revenue_share_pct: input.revenue_share_pct ?? 0.12,
-    composicao_mode: input.composicao_mode ?? 'MAX',
+    composicao_mode: input.composicao_mode ?? 'FLOOR_AS_MINIMUM',
     preco_proposto: input.preco_proposto ?? null,
     pons_count: input.pons_count ?? null,
     pricing_version: input.pricing_version ?? null,

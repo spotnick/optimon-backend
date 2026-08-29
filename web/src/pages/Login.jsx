@@ -40,21 +40,16 @@ export default function Login() {
       }}
     >
       <div style={{ width: '100%', maxWidth: 400 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28, justifyContent: 'center' }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, var(--color-accent-400), var(--color-primary-500))',
-            }}
+        {/* Fase 3.8 (item 1): logo real (asset já existente em web/public/branding/),
+            versão para fundo escuro — nunca mais um placeholder gradiente + texto. */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+          <img
+            src="/branding/optimon-logo-lockup-dark.svg"
+            alt="OptiMon — Optical Asset & Pricing Management"
+            width="540"
+            height="100"
+            style={{ width: 220, height: 'auto' }}
           />
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.3rem', color: '#fff' }}>OptiMon</div>
-            <div style={{ fontSize: '0.68rem', color: '#9db4d1', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              Optical Asset &amp; Pricing Management
-            </div>
-          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="card" style={{ padding: 32 }}>

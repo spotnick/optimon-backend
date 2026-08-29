@@ -3,11 +3,14 @@ import { api, apiDownload } from '../lib/api';
 import { formatCurrencyFull } from '../components/charts/chartUtils';
 
 // Fase 3 (item 3.6): Relatórios gerenciais — cada aba é uma lista exportável (CSV) de
-// uma das entidades pedidas no prompt-mestre. "Receita por POP" mostra capacidade, não
-// dinheiro — ver comentário em supabase/migrations/20260924090000_..._relatorios_
-// gerenciais.sql sobre por que a receita não é segregável por POP com o schema atual.
-// "Faturamento real" honestamente mostra "não disponível" enquanto medicoes_mensais não
-// for alimentada (integração HubSoft/financeiro, adiada) — nunca inventa um número.
+// uma das entidades pedidas no prompt-mestre.
+// Fase 3.8 (item 3.8-12): "Capacidade por POP" ganhou a coluna receita_mensal_rateada —
+// uma ESTIMATIVA (mensalidade mínima de cada contrato dividida entre os POPs que ele usa,
+// proporcional à capacidade contratada), nunca faturamento real medido. Ver a metodologia
+// completa em supabase/migrations/20260929103000_phase_3_8_12_multipop_receita_rateada.sql.
+// "Faturamento real" continua honestamente mostrando "não disponível" enquanto
+// medicoes_mensais não for alimentada (integração HubSoft/financeiro, adiada) — nunca
+// inventa um número de faturamento real.
 
 const TABS = [
   { key: 'receita-por-cidade', label: 'Receita por cidade' },
@@ -25,6 +28,7 @@ const COLUMN_LABELS = {
   pop: 'POP', fibras_totais: 'Fibras totais', fibras_livres: 'Fibras livres', fibras_locadas: 'Fibras locadas',
   pons_totais: 'PONs totais', pons_ocupadas: 'PONs ocupadas', clientes_ativos: 'Clientes ativos',
   taxa_ocupacao: 'Ocupação', contratos_distintos: 'Contratos distintos',
+  receita_mensal_rateada: 'Receita mensal (rateada, estimativa)',
   codigo_porta: 'Porta', tecnologia: 'Tecnologia', capacidade_maxima: 'Capacidade máxima',
   capacidade_disponivel: 'Capacidade disponível', contratada: 'Contratada',
   numero: 'Número', status: 'Status', prazo_meses: 'Prazo (meses)', data_inicio: 'Início',
@@ -34,7 +38,10 @@ const COLUMN_LABELS = {
   competencia_base: 'Competência', aplicado_em: 'Aplicado em',
 };
 
-const CURRENCY_COLUMNS = new Set(['receita_mensal_contratada', 'mensalidade_minima_porta']);
+const CURRENCY_COLUMNS = new Set(['receita_mensal_contratada', 'mensalidade_minima_porta', 'receita_mensal_rateada']);
+// Repete o mesmo texto em toda linha do relatório — mostrado uma vez como legenda abaixo
+// da tabela (ver JSX), nunca como coluna própria.
+const HIDDEN_COLUMNS = new Set(['receita_metodologia']);
 const PCT_COLUMNS = new Set(['revenue_share_medio_pct', 'taxa_ocupacao', 'percentual_revenue_share', 'percentual_aplicado']);
 const BOOL_COLUMNS = new Set(['contratada']);
 
@@ -76,7 +83,8 @@ export default function Reports() {
     }
   }
 
-  const columns = rows && rows.length > 0 ? Object.keys(rows[0]) : [];
+  const columns = rows && rows.length > 0 ? Object.keys(rows[0]).filter((c) => !HIDDEN_COLUMNS.has(c)) : [];
+  const metodologia = rows && rows.length > 0 ? rows[0].receita_metodologia : null;
 
   return (
     <div className="page">
@@ -104,9 +112,9 @@ export default function Reports() {
         ))}
       </div>
 
-      {tab === 'capacidade-por-pop' && (
+      {tab === 'capacidade-por-pop' && metodologia && (
         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: -8, marginBottom: 16 }}>
-          Sem coluna de receita: a mensalidade é definida por contrato (que pode usar mais de um POP), não é segregável por POP sem inventar uma metodologia de rateio.
+          {metodologia}
         </p>
       )}
 

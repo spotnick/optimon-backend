@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import OnboardingModal from './OnboardingModal';
 
@@ -23,21 +23,31 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   async function handleSignOut() {
     await signOut();
     navigate('/login');
   }
 
+  // Fase 3.8 (item 1): o cabeçalho mostrava o mesmo texto de marca em toda
+  // página, duplicando o que o lockup da sidebar já comunica — troca por um
+  // título da seção atual (wayfinding real, sem redundância de marca).
+  const currentSection = [...NAV_ITEMS].sort((a, b) => b.to.length - a.to.length)
+    .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)));
+  const pageTitle = currentSection?.label || 'OptiMon';
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src="/branding/optimon-icon.svg" alt="" className="mark" width="32" height="32" />
-          <div>
-            <div className="name">OptiMon</div>
-            <div className="tagline">Pricing &amp; Assets</div>
-          </div>
+          <img
+            src="/branding/optimon-logo-lockup-dark.svg"
+            alt="OptiMon — Optical Asset & Pricing Management"
+            className="lockup"
+            width="540"
+            height="100"
+          />
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {NAV_ITEMS.map((item) => (
@@ -66,7 +76,7 @@ export default function Layout() {
       </aside>
       <div className="main-area">
         <header className="topbar">
-          <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)' }}>Optical Asset &amp; Pricing Management</div>
+          <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)' }}>{pageTitle}</div>
           <span className={`env-badge ${ENV.toUpperCase().startsWith('PROD') ? 'production' : 'demo'}`}>{ENV}</span>
         </header>
         <Outlet />

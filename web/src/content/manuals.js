@@ -25,6 +25,14 @@
 // sempre que relevante, a limitação honesta de que Faturamento Real/Take-or-Pay/
 // Revenue Share real dependem de dados que o sistema ainda não recebe (ligados à
 // integração HubSoft, explicitamente fora de escopo nesta fase).
+//
+// Fase 3.8 (item 3.8-16): estende os manuais com os recursos introduzidos pela Fase
+// 3.8: regra de cobrança sempre SOMA (remoção do modo MAX), reserva formal de tipo
+// Prefeitura/órgão público, workflow de exceção de fibra de terceiros/rede própria
+// (Engenharia → Comercial → Diretoria), registro formal de ativos cedidos e sua
+// devolução, consolidação Multi-POP com receita mensal rateada por POP, a minuta de
+// 44 seções, os novos tipos de evento de auditoria, e a funcionalidade — antes
+// inexistente — de encerrar/rescindir um contrato.
 
 export const MANUALS = [
   {
@@ -92,20 +100,26 @@ Um responsável removido não fica perdido: marque "Mostrar removidos" na tela d
 Para o Contrato de Cessão de Uso, a política configurada é sempre Assinatura Qualificada ICP-Brasil — essa regra é fixa e não pode ser alterada por COMERCIAL nem por nenhum outro perfil comercial, mas enquanto só o provedor mock estiver disponível, essa política ainda não corresponde a uma assinatura ICP-Brasil real (ver "Status atual" no guia dedicado de assinatura eletrônica).`,
       },
       {
-        titulo: 'Contratos: geração, ativação e aditivos',
-        corpo: `Um contrato nunca é digitado do zero — ele é gerado automaticamente a partir de uma proposta aprovada, preenchendo sozinho Cedente, Cessionário, CNPJ, Representante, Cidade, POP, Fibra/PON, Valor, Mínimo, Revenue Share, Rampa, Prazo, Reajuste, Data de início e Data de término, com base nos dados já validados na proposta e na cidade. Depois de assinado e validado, o botão "Ativar contrato" fica disponível; uma vez ativo, o contrato é bloqueado para edição direta — qualquer mudança de infraestrutura, prazo ou condição comercial passa a exigir um aditivo (que tem seu próprio ciclo de aprovação e assinatura) ou um evento de reajuste (que nunca reescreve o valor histórico, sempre cria um novo registro preservando o anterior).`,
+        titulo: 'Contratos: geração, ativação, aditivos e encerramento',
+        corpo: `Um contrato nunca é digitado do zero — ele é gerado automaticamente a partir de uma proposta aprovada, preenchendo sozinho Cedente, Cessionário, CNPJ, Representante, Cidade, POP, Fibra/PON, Valor, Mínimo, Revenue Share, Rampa, Prazo, Reajuste, Data de início e Data de término, com base nos dados já validados na proposta e na cidade. Depois de assinado e validado, o botão "Ativar contrato" fica disponível; uma vez ativo, o contrato é bloqueado para edição direta — qualquer mudança de infraestrutura, prazo ou condição comercial passa a exigir um aditivo (que tem seu próprio ciclo de aprovação e assinatura) ou um evento de reajuste (que nunca reescreve o valor histórico, sempre cria um novo registro preservando o anterior).
+
+Desde a Fase 3.8, um contrato ATIVO ou SUSPENSO também pode ser formalmente encerrado ou rescindido pelo botão "Encerrar/Rescindir contrato" (restrito a quem já edita guardrails, isto é DIRETOR/ADMINISTRADOR): escolha o tipo (ENCERRADO ou RESCINDIDO) e informe um motivo — obrigatório. A data efetiva e o motivo ficam gravados no próprio contrato, e o evento é auditado com o rótulo CONTRACT_TERMINATED; antes da Fase 3.8 esses dois status existiam apenas no cadastro, sem nenhum caminho no sistema para chegar até eles.`,
       },
       {
         titulo: 'Guardrails contratuais, clientes reservados e minuta',
         corpo: `Na tela de detalhe do contrato, o card "Guardrails contratuais" reúne as regras de proteção do negócio para aquele contrato específico: exclusividade comercial (tipo, área, cidade/POP/serviço, prazo e capacidade máxima), proibição de fibra de terceiros, proibição de rede própria do parceiro, direito de preferência, exigência de aprovação para expansão, e se o proprietário pode explorar a capacidade remanescente. Editar esse card é restrito a DIRETOR/ADMINISTRADOR.
 
-O card "Clientes reservados" lista clientes finais que aquele parceiro está proibido de atender (o exemplo clássico é uma exceção de Prefeitura) — cada entrada pode ser marcada como RESERVADO ou LIBERADO. É uma lista de referência operacional: o sistema não tem hoje nenhuma tabela que associe automaticamente um cliente final nomeado a uma proposta ou contrato, então a checagem de que o parceiro está respeitando essa reserva continua sendo uma verificação manual de quem opera o contrato.
+O card "Clientes reservados" lista clientes finais que aquele parceiro está proibido de atender — cada entrada tem um tipo, PREFEITURA/ORGAO_PUBLICO ou OUTRO, e pode ser marcada como RESERVADO ou LIBERADO. Uma reserva do tipo PREFEITURA/ORGAO_PUBLICO recebe automaticamente, na minuta, uma cláusula própria fundamentada em interesse público — nunca tratada como uma simples reserva comercial. É uma lista de referência operacional: o sistema não tem hoje nenhuma tabela que associe automaticamente um cliente final nomeado a uma proposta ou contrato, então a checagem de que o parceiro está respeitando essa reserva continua sendo uma verificação manual de quem opera o contrato.
 
-O botão "Baixar Minuta" (PDF ou DOCX) gera o documento completo do contrato a partir dos dados já validados — sempre rotulado com destaque "MINUTA SUJEITA À APROVAÇÃO JURÍDICA — NÃO ASSINAR SEM REVISÃO" na capa e no rodapé de cada página. Cláusulas para as quais o sistema ainda não tem um texto jurídico definitivo (Inadimplência, Rescisão, Penalidades, Confidencialidade, LGPD, Foro) aparecem em itálico laranja, começando com "[CLÁUSULA-MODELO", justamente para nunca serem confundidas com texto já revisado e aprovado — toda minuta gerada precisa passar por revisão jurídica antes de virar o documento assinado de verdade.`,
+A proibição padrão de fibra de terceiros e de rede própria do parceiro só pode ser suspensa, contrato a contrato, através do workflow formal de exceção introduzido na Fase 3.8: a solicitação passa obrigatoriamente por parecer da Engenharia, parecer do Comercial e decisão final da Diretoria, nessa ordem, e cada rejeição registra o motivo e a etapa em que ocorreu. Enquanto não há uma aprovação vigente, a proibição continua valendo — a minuta reflete automaticamente esse histórico completo de solicitações na cláusula correspondente.
+
+O botão "Baixar Minuta" (PDF ou DOCX) gera o documento completo do contrato a partir dos dados já validados — sempre rotulado com destaque "MINUTA SUJEITA À APROVAÇÃO JURÍDICA — NÃO ASSINAR SEM REVISÃO" na capa e no rodapé de cada página, e desde a Fase 3.8 com uma estrutura fixa de 44 seções (de Definições a Disposições Gerais). Cláusulas para as quais o sistema ainda não tem um texto jurídico definitivo aparecem em itálico laranja, começando com "[CLÁUSULA-MODELO", justamente para nunca serem confundidas com texto já revisado e aprovado — toda minuta gerada precisa passar por revisão jurídica antes de virar o documento assinado de verdade. O gerador da minuta nunca inventa dado: cada cláusula usa só o que já está cadastrado e validado no contrato, na proposta e na cidade, ou fica marcada como modelo pendente de redação jurídica.`,
       },
       {
         titulo: 'Auditoria',
-        corpo: `A tela "Auditoria" (/auditoria) registra todo evento relevante do sistema — criação, edição, desativação, reativação, aprovação, reprovação, assinatura, validação, geração, exportação e cancelamento — sempre com quem fez, quando, e o motivo quando aplicável. Cada proponente também tem sua própria aba "Histórico & Auditoria" filtrada só para os eventos daquele registro; eventos de responsáveis, propostas ou contratos vinculados a ele continuam aparecendo na tela geral de Auditoria.`,
+        corpo: `A tela "Auditoria" (/auditoria) registra todo evento relevante do sistema — criação, edição, desativação, reativação, aprovação, reprovação, assinatura, validação, geração, exportação e cancelamento — sempre com quem fez, quando, e o motivo quando aplicável. Cada proponente também tem sua própria aba "Histórico & Auditoria" filtrada só para os eventos daquele registro; eventos de responsáveis, propostas ou contratos vinculados a ele continuam aparecendo na tela geral de Auditoria.
+
+Desde a Fase 3.8, a trilha também cobre explicitamente inclusão/remoção de porta PON e de POP em um cabo/cidade, remoção de cliente reservado, encerramento/rescisão de contrato, e as três etapas do workflow de exceção de fibra de terceiros/rede própria (solicitação, aprovação e a exceção de rede própria propriamente dita) — eventos que antes só ficavam implícitos em registros de infraestrutura ou de contrato mais genéricos, agora têm um rótulo semântico próprio, mais fácil de filtrar e investigar.`,
       },
       {
         titulo: 'Alertas',
@@ -180,6 +194,16 @@ Ao arquivar, o sistema sempre pede um motivo (lista fechada de opções) e permi
         corpo: `Infraestrutura arquivada nunca entra nos cálculos do Pricing Engine nem nos números do Dashboard — capacidade, fibras livres e portas disponíveis sempre refletem só o que está ativo. Para ver o que foi arquivado, use o filtro "Arquivados" ou "Todos" na tela de infraestrutura da cidade.`,
       },
       {
+        titulo: 'Multi-POP: capacidade e receita consolidadas',
+        corpo: `Quando um contrato usa portas PON de mais de um POP, a tela de detalhe do contrato mostra um card "Multi-POP: capacidade e receita por POP" com a consolidação Cidade → POP → Porta PON → Capacidade → Clientes ativos → Disponível para cada POP envolvido, mais uma linha de total. A coluna de receita mensal é sempre rotulada "rateada (estimativa)" — é a mensalidade mínima do contrato distribuída entre os POPs proporcionalmente à capacidade de clientes de cada vínculo ativo, nunca um valor de faturamento real medido POP a POP (isso dependeria da integração HubSoft, fora de escopo). A mesma consolidação está disponível de forma agregada, por cidade, na tela de Relatórios → Capacidade por POP.`,
+      },
+      {
+        titulo: 'Ativos e equipamentos cedidos',
+        corpo: `Diferente de fibra, cabo, poste e porta PON — que são infraestrutura permanente da NICK e nunca são "devolvidos" por definição — um ativo cedido (OLT, ONU, ONT, fonte, switch) é um equipamento emprestado ou locado ao parceiro dentro de um contrato específico, e por isso tem um ciclo de vida próprio de cessão e devolução. O registro de cada ativo cedido a um contrato fica na própria tela de detalhe do contrato, com número de patrimônio/série, tipo e data de cessão.
+
+Quando um contrato é encerrado ou rescindido, todo ativo cedido ainda vinculado a ele e sem registro de devolução aparece automaticamente na tela "Alertas" (ver abaixo) — o registro formal da devolução (ou da indenização, em caso de perda/dano) é feito na mesma tela de detalhe do contrato, e fica na trilha de auditoria como qualquer outra decisão sobre o contrato.`,
+      },
+      {
         titulo: 'Alertas relevantes para Engenharia',
         corpo: `A tela "Alertas" (menu lateral) traz três tipos de interesse direto de Engenharia: capacidade de Porta PON em 80/90/100% (gerados automaticamente sempre que um cliente é vinculado/removido de uma porta — nunca precisam do botão "Gerar alertas"), e "Ativos pendentes de devolução" — quando um contrato é encerrado ou rescindido e ainda existe algum ativo (OLT, ONU, switch, roteador) vinculado a ele sem registro de devolução. Esse alerta lista exatamente qual patrimônio/número de série está pendente, para orientar a coleta física do equipamento.`,
       },
@@ -235,7 +259,9 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
       },
       {
         titulo: 'Minuta de contrato e clientes reservados',
-        corpo: `Na tela de detalhe do contrato, o botão "Baixar Minuta" gera um rascunho do contrato em PDF/DOCX a partir dos dados já validados — sempre marcado "MINUTA SUJEITA À APROVAÇÃO JURÍDICA", nunca um documento pronto para assinar sem revisão. O card "Clientes reservados" mostra, se existir, quais clientes finais aquele parceiro está proibido de atender (por exemplo, uma exceção de Prefeitura) — vale a pena consultar antes de fechar negócio com um cliente final específico em nome do parceiro.`,
+        corpo: `Na tela de detalhe do contrato, o botão "Baixar Minuta" gera um rascunho do contrato em PDF/DOCX a partir dos dados já validados — sempre marcado "MINUTA SUJEITA À APROVAÇÃO JURÍDICA", nunca um documento pronto para assinar sem revisão, e desde a Fase 3.8 sempre com a mesma estrutura fixa de 44 seções. O card "Clientes reservados" mostra, se existir, quais clientes finais aquele parceiro está proibido de atender, com um tipo — PREFEITURA/ORGAO_PUBLICO (reserva de interesse público, com cláusula jurídica própria na minuta) ou OUTRO (reserva comercial) — vale a pena consultar antes de fechar negócio com um cliente final específico em nome do parceiro.
+
+Um parceiro só pode usar fibra de terceiros ou construir rede própria mediante exceção aprovada: a solicitação é feita pelo comercial mas depende de parecer da Engenharia e decisão final da Diretoria antes de valer — nunca é uma liberação automática nem informal.`,
       },
       {
         titulo: 'Acompanhando alertas do funil comercial',
@@ -251,7 +277,7 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
     secoes: [
       {
         titulo: 'A composição do preço final',
-        corpo: `O total mensal pago à OptiMon (total_payable) é composto a partir do modo de composição escolhido na simulação: MAX (o maior entre o piso/mínimo e o revenue share calculado), SUM (piso mais revenue share), FLOOR_ONLY (só o piso) ou MINIMUM_ONLY (só o mínimo contratual). A receita do parceiro é sempre o faturamento total menos esse valor. Esses mesmos campos — Valor, Mínimo e Revenue Share — são os que aparecem preenchidos automaticamente no contrato gerado a partir da proposta aprovada.`,
+        corpo: `O total mensal pago à OptiMon (total_payable) é composto a partir do modo de composição escolhido na simulação: FLOOR_AS_MINIMUM (padrão — o piso de infraestrutura assume o papel do mínimo contratual, somado ao revenue share), SUM (piso mais mínimo mais revenue share), FLOOR_ONLY (só o piso) ou MINIMUM_ONLY (só o mínimo contratual). Desde a Fase 3.8, a regra de cobrança da NICK é sempre SOMA — mínimo (ou piso, no modo FLOOR_AS_MINIMUM) MAIS revenue share, os dois sempre somados; a opção "MAX" (cobrar apenas o maior entre os dois) foi removida do sistema inteiro, inclusive de contratos já existentes, que foram recalculados para SOMA. A receita do parceiro é sempre o faturamento total menos esse valor. Esses mesmos campos — Valor, Mínimo e Revenue Share — são os que aparecem preenchidos automaticamente no contrato gerado a partir da proposta aprovada.`,
       },
       {
         titulo: 'Rampa de clientes',
@@ -281,7 +307,9 @@ Uma proposta nunca é sobrescrita: se você precisa mudar valores depois de já 
         titulo: 'Relatórios',
         corpo: `A tela "Relatórios" traz seis relatórios prontos, cada um exportável em CSV: Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes — todos calculados a partir do que já está contratado/reajustado no sistema, nunca de faturamento real de terceiros.
 
-Um relatório de Faturamento Real também está desenhado na arquitetura, mas hoje aparece como "indisponível": ele depende de medições mensais reais de consumo/faturamento por contrato (e, em última instância, da integração com o HubSoft), que este sistema ainda não recebe. Pelo mesmo motivo, o Revenue Share e o Take-or-Pay mostrados em telas e relatórios são sempre a condição contratual (o que está pactuado), nunca o valor realmente cobrado/pago mês a mês — essa distinção importa para conciliação financeira.`,
+Um relatório de Faturamento Real também está desenhado na arquitetura, mas hoje aparece como "indisponível": ele depende de medições mensais reais de consumo/faturamento por contrato (e, em última instância, da integração com o HubSoft), que este sistema ainda não recebe. Pelo mesmo motivo, o Revenue Share e o Take-or-Pay mostrados em telas e relatórios são sempre a condição contratual (o que está pactuado), nunca o valor realmente cobrado/pago mês a mês — essa distinção importa para conciliação financeira.
+
+No relatório Capacidade por POP, a coluna de receita mensal para contratos Multi-POP é sempre rotulada "rateada (estimativa)": é a mensalidade mínima contratada dividida entre os POPs usados, proporcionalmente à capacidade de clientes de cada vínculo — não é faturamento real medido por POP, e a tela sempre mostra a metodologia usada ao lado do número.`,
       },
       {
         titulo: 'Alertas financeiros',
@@ -297,7 +325,7 @@ Um relatório de Faturamento Real também está desenhado na arquitetura, mas ho
     secoes: [
       {
         titulo: 'O papel do DIRETOR/ADMINISTRADOR no fluxo',
-        corpo: `Somente DIRETOR e ADMINISTRADOR podem: aprovar propostas que saíram do rascunho, autorizar preços abaixo do piso, aprovar aditivos contratuais, restaurar qualquer item de infraestrutura arquivado, editar a configuração do provedor de assinatura, e mover uma proposta por qualquer transição de status além do rascunho. Essa restrição é aplicada tanto na interface quanto diretamente no banco de dados (Row-Level Security) — não é possível contornar via API.`,
+        corpo: `Somente DIRETOR e ADMINISTRADOR podem: aprovar propostas que saíram do rascunho, autorizar preços abaixo do piso, aprovar aditivos contratuais, restaurar qualquer item de infraestrutura arquivado, editar a configuração do provedor de assinatura, mover uma proposta por qualquer transição de status além do rascunho, decidir (última etapa) o workflow de exceção de fibra de terceiros/rede própria, e encerrar/rescindir um contrato. Essa restrição é aplicada tanto na interface quanto diretamente no banco de dados (Row-Level Security) — não é possível contornar via API.`,
       },
       {
         titulo: 'Aprovando uma proposta',
@@ -308,12 +336,16 @@ Um relatório de Faturamento Real também está desenhado na arquitetura, mas ho
         corpo: `Um aditivo (inclusão/exclusão de fibra ou porta, alteração de prazo, condição comercial, capacidade, exclusividade ou regra de cobrança) percorre RASCUNHO → EM_APROVACAO → APROVADO antes de poder receber um envelope de assinatura, e só depois de assinado e validado pode ser ativado. A aprovação (ou rejeição) do aditivo, na tela do contrato, é restrita a DIRETOR/ADMINISTRADOR, na mesma lógica de governança das propostas.`,
       },
       {
-        titulo: 'Assinaturas e contratos ativos',
-        corpo: `Um contrato só pode ser ativado depois que a assinatura eletrônica correspondente está VALIDADA — o botão "Ativar contrato" fica indisponível até lá. Uma vez ativo, o contrato é bloqueado contra edição direta: qualquer mudança de condição passa a exigir um aditivo formal, com seu próprio ciclo de aprovação e assinatura, nunca uma edição silenciosa.`,
+        titulo: 'Assinaturas, contratos ativos e encerramento',
+        corpo: `Um contrato só pode ser ativado depois que a assinatura eletrônica correspondente está VALIDADA — o botão "Ativar contrato" fica indisponível até lá. Uma vez ativo, o contrato é bloqueado contra edição direta: qualquer mudança de condição passa a exigir um aditivo formal, com seu próprio ciclo de aprovação e assinatura, nunca uma edição silenciosa.
+
+Desde a Fase 3.8, um contrato ATIVO ou SUSPENSO também pode ser formalmente encerrado (ENCERRADO) ou rescindido (RESCINDIDO) pelo botão "Encerrar/Rescindir contrato", com motivo obrigatório — uma funcionalidade que antes não existia no sistema, apesar de esses dois status já constarem do cadastro desde a Fase 1. Depois de encerrado, o contrato não pode ser reativado; ativos cedidos ainda vinculados e não devolvidos aparecem automaticamente na tela Alertas.`,
       },
       {
-        titulo: 'Guardrails contratuais e minuta',
-        corpo: `Editar o card "Guardrails contratuais" (exclusividade comercial, proibição de fibra de terceiros/rede própria, direito de preferência, exigência de aprovação de expansão) e o cadastro de "Clientes reservados" de um contrato é restrito a DIRETOR/ADMINISTRADOR — são as regras que protegem o relacionamento comercial de longo prazo com o parceiro, então a mudança fica registrada como qualquer outra decisão de governança. A minuta de contrato gerada pelo sistema (botão "Baixar Minuta") é sempre um rascunho sujeito a aprovação jurídica — nunca trate como o documento final pronto para assinar.`,
+        titulo: 'Guardrails contratuais, exceções e minuta',
+        corpo: `Editar o card "Guardrails contratuais" (exclusividade comercial, proibição de fibra de terceiros/rede própria, direito de preferência, exigência de aprovação de expansão) e o cadastro de "Clientes reservados" de um contrato é restrito a DIRETOR/ADMINISTRADOR — são as regras que protegem o relacionamento comercial de longo prazo com o parceiro, então a mudança fica registrada como qualquer outra decisão de governança. A minuta de contrato gerada pelo sistema (botão "Baixar Minuta", hoje com 44 seções fixas) é sempre um rascunho sujeito a aprovação jurídica — nunca trate como o documento final pronto para assinar.
+
+A suspensão da proibição de fibra de terceiros/rede própria para um contrato específico sempre termina na Diretoria: mesmo depois de pareceres favoráveis da Engenharia e do Comercial, a decisão final — aprovar ou rejeitar, com motivo — é sempre do DIRETOR/ADMINISTRADOR, e enquanto ela não existir a proibição continua em vigor.`,
       },
       {
         titulo: 'Visão consolidada e alertas',
@@ -329,7 +361,7 @@ Um relatório de Faturamento Real também está desenhado na arquitetura, mas ho
       },
       {
         titulo: 'Relatórios para acompanhamento executivo',
-        corpo: `A tela "Relatórios" reúne Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes, todos exportáveis em CSV para apresentação ou análise externa. O relatório de Faturamento Real ainda aparece como indisponível nesta fase — depende de dados de faturamento/medição real que o sistema não recebe hoje (ligado à integração HubSoft, fora de escopo) — os números de receita mostrados em todo o sistema são sempre a condição contratual pactuada, nunca o valor efetivamente cobrado.`,
+        corpo: `A tela "Relatórios" reúne Receita por Cidade, Receita por Parceiro, Capacidade por POP, Clientes por Porta PON, Contratos e Reajustes, todos exportáveis em CSV para apresentação ou análise externa. O relatório de Faturamento Real ainda aparece como indisponível nesta fase — depende de dados de faturamento/medição real que o sistema não recebe hoje (ligado à integração HubSoft, fora de escopo) — os números de receita mostrados em todo o sistema são sempre a condição contratual pactuada, nunca o valor efetivamente cobrado. Para contratos Multi-POP, o relatório de Capacidade por POP mostra também uma receita mensal "rateada (estimativa)" por POP — sempre uma distribuição proporcional da mensalidade contratada, nunca uma medição real de consumo por POP.`,
       },
     ],
   },
@@ -347,7 +379,7 @@ Se você notar um botão de ação aparecendo indevidamente para o perfil AUDITO
       },
       {
         titulo: 'Auditoria — sua principal ferramenta de trabalho',
-        corpo: `A tela "Auditoria" (/auditoria) é o registro central de todo evento relevante do sistema: criação, edição, arquivamento, restauração, tentativas bloqueadas, aprovações, rejeições, assinaturas, validações, geração de contrato, exclusões físicas e exportações — cada linha mostra quem fez, quando, o valor anterior e o novo (quando aplicável) e o motivo informado. Use os filtros por entidade e ação para investigar um caso específico. A tabela de auditoria é estruturalmente imutável: nenhum perfil, nem ADMINISTRADOR, consegue alterar ou apagar um registro já gravado — o que você vê ali é garantidamente o que aconteceu, na ordem em que aconteceu.
+        corpo: `A tela "Auditoria" (/auditoria) é o registro central de todo evento relevante do sistema: criação, edição, arquivamento, restauração, tentativas bloqueadas, aprovações, rejeições, assinaturas, validações, geração de contrato, exclusões físicas e exportações — cada linha mostra quem fez, quando, o valor anterior e o novo (quando aplicável) e o motivo informado. Use os filtros por entidade e ação para investigar um caso específico. Desde a Fase 3.8, o filtro de entidade também cobre diretamente infra_pops, infra_portas_pon, contrato_clientes_reservados, contrato_regras_solicitacoes, ativos e ativos_devolucao, e a tabela ganhou rótulos semânticos próprios para eventos como inclusão/remoção de porta PON ou POP, encerramento de contrato e cada etapa do workflow de exceção de fibra de terceiros/rede própria. A tabela de auditoria é estruturalmente imutável: nenhum perfil, nem ADMINISTRADOR, consegue alterar ou apagar um registro já gravado — o que você vê ali é garantidamente o que aconteceu, na ordem em que aconteceu.
 
 Cada proponente também tem sua própria aba "Histórico & Auditoria", já filtrada só para os eventos daquele registro — útil para reconstruir o histórico de um parceiro específico sem precisar aplicar filtros manualmente na tela geral.`,
       },

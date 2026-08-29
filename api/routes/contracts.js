@@ -48,6 +48,7 @@ router.get('/:id', async (req, res) => {
   const [
     { data: contrato, error: cError }, { data: pricingConfig }, { data: fibras }, { data: aditivos },
     { data: reajustes }, { data: envelopes }, { data: regras }, { data: clientesReservados }, { data: ativos },
+    { data: regrasSolicitacoes },
   ] = await Promise.all([
     supabase.from('contratos').select('*, parceiros(id, razao_social, nome_fantasia, cnpj), cidades_infra(id, nome, uf)').eq('id', req.params.id).maybeSingle(),
     supabase.from('contrato_pricing_config').select('*').eq('contrato_id', req.params.id).maybeSingle(),
@@ -61,6 +62,9 @@ router.get('/:id', async (req, res) => {
     supabase.from('contrato_regras').select('*').eq('contrato_id', req.params.id).maybeSingle(),
     supabase.from('contrato_clientes_reservados').select('*').eq('contrato_id', req.params.id).order('cliente_nome'),
     supabase.from('ativos').select('id, tipo, fabricante, modelo, numero_serie, patrimonio, valor, status').eq('contrato_id', req.params.id).is('removido_em', null),
+    // Fase 3.8 (itens 3.8-09/3.8-10): workflow Engenharia → Comercial → Diretoria para
+    // exceção de fibra de terceiros / rede própria (ver migration 20260929094500).
+    supabase.from('contrato_regras_solicitacoes').select('*').eq('contrato_id', req.params.id).order('criado_em', { ascending: false }),
   ]);
   if (cError) return handleError(res, cError);
   if (!contrato) return res.status(404).json({ error: `Contrato ${req.params.id} não encontrado.` });
@@ -74,6 +78,7 @@ router.get('/:id', async (req, res) => {
     regras: regras || null,
     clientes_reservados: clientesReservados || [],
     ativos: ativos || [],
+    regras_solicitacoes: regrasSolicitacoes || [],
   });
 });
 
@@ -100,15 +105,25 @@ router.patch('/:id/regras', async (req, res) => {
   return res.json(data);
 });
 
-// POST /api/contracts/:id/clientes-reservados — Fase 3 (item 3.7): adicionar cliente
-// reservado (ex.: exceção Prefeitura, seção 24). RLS restringe a DIRETOR/ADMINISTRADOR.
+// POST /api/contracts/:id/clientes-reservados — Fase 3 (item 3.7), estrutura formal
+// adicionada na Fase 3.8 (item 3.8-08: tipo PREFEITURA/ORGAO_PUBLICO/OUTRO +
+// documento_referencia — ver migration 20260929091500 e contractDocumentModel.js, que dá
+// tratamento jurídico distinto a entes públicos na minuta). RLS restringe a
+// DIRETOR/ADMINISTRADOR.
+const TIPOS_CLIENTE_RESERVADO = ['PREFEITURA', 'ORGAO_PUBLICO', 'OUTRO'];
 router.post('/:id/clientes-reservados', async (req, res) => {
-  const { cliente_nome, cnpj_cpf, cidade_id, motivo } = req.body || {};
+  const { cliente_nome, cnpj_cpf, cidade_id, motivo, tipo, documento_referencia } = req.body || {};
   if (!cliente_nome) return res.status(400).json({ error: 'cliente_nome é obrigatório.' });
+  if (tipo && !TIPOS_CLIENTE_RESERVADO.includes(tipo)) {
+    return res.status(400).json({ error: `tipo deve ser um de: ${TIPOS_CLIENTE_RESERVADO.join(', ')}.` });
+  }
   const supabase = clientForRequest(req.userJwt);
   const { data, error } = await supabase
     .from('contrato_clientes_reservados')
-    .insert({ contrato_id: req.params.id, cliente_nome, cnpj_cpf: cnpj_cpf || null, cidade_id: cidade_id || null, motivo: motivo || null })
+    .insert({
+      contrato_id: req.params.id, cliente_nome, cnpj_cpf: cnpj_cpf || null, cidade_id: cidade_id || null,
+      motivo: motivo || null, tipo: tipo || 'OUTRO', documento_referencia: documento_referencia || null,
+    })
     .select('*')
     .maybeSingle();
   if (error) return handleError(res, error);
@@ -130,6 +145,92 @@ router.patch('/:id/clientes-reservados/:reservaId', async (req, res) => {
     .maybeSingle();
   if (error) return handleError(res, error);
   if (!data) return res.status(404).json({ error: 'Cliente reservado não encontrado.' });
+  return res.json(data);
+});
+
+// Fase 3.8 (itens 3.8-09/3.8-10): workflow formal Engenharia → Comercial → Diretoria
+// para autorizar exceção de fibra de terceiros / rede própria (migration 20260929094500).
+// Toda a autorização real (quem pode fazer qual transição, imutabilidade pós-decisão,
+// efeito automático em contrato_regras na aprovação) mora no banco (RLS + trigger
+// fn_regra_solicitacao_transicao + fn_regra_solicitacao_aplica_excecao) — estas rotas só
+// encaminham o UPDATE, nunca decidem RBAC aqui (mesma disciplina das demais rotas deste
+// arquivo).
+
+// POST /api/contracts/:id/regras-solicitacoes — abre uma solicitação (nasce sempre em
+// AGUARDANDO_ENGENHARIA). RLS restringe a COMERCIAL/DIRETOR/ADMINISTRADOR.
+router.post('/:id/regras-solicitacoes', async (req, res) => {
+  const { tipo, descricao } = req.body || {};
+  if (!['FIBRA_TERCEIROS', 'REDE_PROPRIA'].includes(tipo)) {
+    return res.status(400).json({ error: 'tipo deve ser FIBRA_TERCEIROS ou REDE_PROPRIA.' });
+  }
+  if (!descricao) return res.status(400).json({ error: 'descricao é obrigatória.' });
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase
+    .from('contrato_regras_solicitacoes')
+    .insert({ contrato_id: req.params.id, tipo, descricao })
+    .select('*')
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  return res.status(201).json(data);
+});
+
+// PATCH .../regras-solicitacoes/:solicitacaoId/parecer-engenharia — etapa 1. RLS deixa a
+// linha alcançável para ENGENHARIA/COMERCIAL/DIRETOR/ADMINISTRADOR, mas o trigger só
+// aceita ENGENHARIA (ou DIRETOR/ADMINISTRADOR) de fato avançar esta etapa — ver comentário
+// na migration sobre a lição da Fase 3.16 (RLS só precisa deixar alcançável, não decidir).
+router.patch('/:id/regras-solicitacoes/:solicitacaoId/parecer-engenharia', async (req, res) => {
+  const { aprova, parecer } = req.body || {};
+  if (typeof aprova !== 'boolean') return res.status(400).json({ error: 'aprova (boolean) é obrigatório.' });
+  if (!parecer) return res.status(400).json({ error: 'parecer é obrigatório.' });
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase
+    .from('contrato_regras_solicitacoes')
+    .update({ status: aprova ? 'AGUARDANDO_COMERCIAL' : 'REJEITADA', parecer_engenharia: parecer })
+    .eq('id', req.params.solicitacaoId)
+    .eq('contrato_id', req.params.id)
+    .select('*')
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  if (!data) return res.status(404).json({ error: 'Solicitação não encontrada (ou fora da etapa AGUARDANDO_ENGENHARIA).' });
+  return res.json(data);
+});
+
+// PATCH .../regras-solicitacoes/:solicitacaoId/parecer-comercial — etapa 2.
+router.patch('/:id/regras-solicitacoes/:solicitacaoId/parecer-comercial', async (req, res) => {
+  const { aprova, parecer } = req.body || {};
+  if (typeof aprova !== 'boolean') return res.status(400).json({ error: 'aprova (boolean) é obrigatório.' });
+  if (!parecer) return res.status(400).json({ error: 'parecer é obrigatório.' });
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase
+    .from('contrato_regras_solicitacoes')
+    .update({ status: aprova ? 'AGUARDANDO_DIRETORIA' : 'REJEITADA', parecer_comercial: parecer })
+    .eq('id', req.params.solicitacaoId)
+    .eq('contrato_id', req.params.id)
+    .select('*')
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  if (!data) return res.status(404).json({ error: 'Solicitação não encontrada (ou fora da etapa AGUARDANDO_COMERCIAL).' });
+  return res.json(data);
+});
+
+// PATCH .../regras-solicitacoes/:solicitacaoId/decidir — etapa final (só DIRETOR/
+// ADMINISTRADOR). Aprovação concede a exceção automaticamente em contrato_regras (ver
+// fn_regra_solicitacao_aplica_excecao) — esta rota não precisa (nem deve) replicar esse
+// efeito aqui, é 100% responsabilidade do banco.
+router.patch('/:id/regras-solicitacoes/:solicitacaoId/decidir', async (req, res) => {
+  const { aprova, motivo } = req.body || {};
+  if (typeof aprova !== 'boolean') return res.status(400).json({ error: 'aprova (boolean) é obrigatório.' });
+  if (!aprova && !motivo) return res.status(400).json({ error: 'motivo é obrigatório ao rejeitar.' });
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase
+    .from('contrato_regras_solicitacoes')
+    .update({ status: aprova ? 'APROVADA' : 'REJEITADA', motivo_rejeicao: aprova ? null : motivo })
+    .eq('id', req.params.solicitacaoId)
+    .eq('contrato_id', req.params.id)
+    .select('*')
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  if (!data) return res.status(404).json({ error: 'Solicitação não encontrada (ou fora da etapa AGUARDANDO_DIRETORIA).' });
   return res.json(data);
 });
 
@@ -190,6 +291,19 @@ router.post('/generate', async (req, res) => {
 router.post('/:id/activate', async (req, res) => {
   const supabase = clientForRequest(req.userJwt);
   const { data, error } = await supabase.rpc('pricing_contract_activate', { p_contrato_id: req.params.id });
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
+// POST /api/contracts/:id/terminate — Fase 3.8 (item 3.8-14): encerrar (fim natural) ou
+// rescindir (antecipado) um contrato ATIVO/SUSPENSO. Não existia nenhum caminho de escrita
+// para isso antes desta fase — motivo sempre obrigatório (ver app.encerrar_contrato).
+router.post('/:id/terminate', async (req, res) => {
+  const { tipo, motivo } = req.body || {};
+  if (!['ENCERRADO', 'RESCINDIDO'].includes(tipo)) return res.status(400).json({ error: 'tipo deve ser ENCERRADO ou RESCINDIDO.' });
+  if (!motivo || !motivo.trim()) return res.status(400).json({ error: 'motivo é obrigatório.' });
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_contract_terminate', { p_contrato_id: req.params.id, p_tipo: tipo, p_motivo: motivo });
   if (error) return handleError(res, error);
   return res.json(data);
 });

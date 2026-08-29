@@ -20,7 +20,10 @@ export default function Audit() {
       .catch((err) => setError(err.message));
   }, [filtroEntidade]);
 
-  const entidades = ['', 'auth', 'simulacoes', 'propostas_comerciais', 'pricing_override_requests', 'contratos', 'pricing_parametros'];
+  // Fase 3.8 (item 3.8-14): lista ampliada — infra_pops/infra_portas_pon/
+  // contrato_clientes_reservados/contrato_regras_solicitacoes já eram auditadas
+  // genericamente desde fases anteriores, mas não tinham atalho de filtro nesta tela.
+  const entidades = ['', 'auth', 'simulacoes', 'propostas_comerciais', 'pricing_override_requests', 'contratos', 'pricing_parametros', 'infra_pops', 'infra_portas_pon', 'contrato_clientes_reservados', 'contrato_regras_solicitacoes', 'ativos', 'ativos_devolucao'];
 
   if (error) return <div className="page"><div className="error-banner">{error}</div></div>;
 
@@ -53,6 +56,7 @@ export default function Audit() {
                   <th>Ação</th>
                   <th>Entidade</th>
                   <th>Id da entidade</th>
+                  <th>Motivo</th>
                 </tr>
               </thead>
               <tbody>
@@ -62,6 +66,7 @@ export default function Audit() {
                     <td><span className={`badge ${ACAO_CLASS[e.acao] || ''}`}>{e.acao}</span></td>
                     <td>{e.entidade}</td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>{e.entidade_id}</td>
+                    <td>{e.motivo || '—'}</td>
                   </tr>
                 ))}
               </tbody>

@@ -119,6 +119,10 @@ export const api = {
     indices: (indice) => request(`/api/pricing/indices${indice ? `?indice=${indice}` : ''}`),
     override: (body) => request('/api/pricing/override', { method: 'POST', body }),
     approve: (body) => request('/api/pricing/approve', { method: 'POST', body }),
+    // Fase 3.8 (item 3.8-12): capacidade + receita rateada por POP de um contrato
+    // Multi-POP — a rota já existia desde a Fase 2.1 (backend), mas nunca tinha sido
+    // chamada por nenhuma tela do frontend até agora.
+    capacityByPop: (contratoId) => request(`/api/pricing/capacity-by-pop?contrato_id=${contratoId}`),
   },
 
   simulations: {
@@ -206,6 +210,9 @@ export const api = {
     get: (id) => request(`/api/contracts/${id}`),
     generate: (body) => request('/api/contracts/generate', { method: 'POST', body }),
     activate: (id) => request(`/api/contracts/${id}/activate`, { method: 'POST' }),
+    // Fase 3.8 (item 3.8-14): encerrar (fim natural) ou rescindir (antecipado) — motivo
+    // sempre obrigatório (ver app.encerrar_contrato).
+    terminate: (id, body) => request(`/api/contracts/${id}/terminate`, { method: 'POST', body }),
     reajuste: (id, body) => request(`/api/contracts/${id}/reajuste`, { method: 'POST', body }),
     aditivos: (id) => request(`/api/contracts/${id}/aditivos`),
     createAditivo: (id, body) => request(`/api/contracts/${id}/aditivos`, { method: 'POST', body }),
@@ -225,6 +232,12 @@ export const api = {
     updateRegras: (id, body) => request(`/api/contracts/${id}/regras`, { method: 'PATCH', body }),
     addClienteReservado: (id, body) => request(`/api/contracts/${id}/clientes-reservados`, { method: 'POST', body }),
     updateClienteReservado: (id, reservaId, body) => request(`/api/contracts/${id}/clientes-reservados/${reservaId}`, { method: 'PATCH', body }),
+    // Fase 3.8 (itens 3.8-09/3.8-10): workflow Engenharia → Comercial → Diretoria para
+    // exceção de fibra de terceiros / rede própria.
+    addRegraSolicitacao: (id, body) => request(`/api/contracts/${id}/regras-solicitacoes`, { method: 'POST', body }),
+    parecerEngenharia: (id, solId, body) => request(`/api/contracts/${id}/regras-solicitacoes/${solId}/parecer-engenharia`, { method: 'PATCH', body }),
+    parecerComercial: (id, solId, body) => request(`/api/contracts/${id}/regras-solicitacoes/${solId}/parecer-comercial`, { method: 'PATCH', body }),
+    decidirRegraSolicitacao: (id, solId, body) => request(`/api/contracts/${id}/regras-solicitacoes/${solId}/decidir`, { method: 'PATCH', body }),
   },
 
   audit: {
@@ -236,6 +249,18 @@ export const api = {
     get: (tipo) => request(`/api/reports/${tipo}`),
     faturamentoReal: () => request('/api/reports/faturamento-real/status'),
     csvPath: (tipo) => `/api/reports/${tipo}/csv`,
+  },
+
+  // Fase 3.8 (item 3.8-11): registro formal de equipamentos cedidos (OLT/ONU/ONT/fonte/
+  // switch) e devolução na rescisão contratual.
+  assets: {
+    list: (params = {}) => request(`/api/assets?${new URLSearchParams(params)}`),
+    get: (id) => request(`/api/assets/${id}`),
+    create: (body) => request('/api/assets', { method: 'POST', body }),
+    update: (id, body) => request(`/api/assets/${id}`, { method: 'PATCH', body }),
+    archive: (id) => request(`/api/assets/${id}`, { method: 'DELETE' }),
+    abrirDevolucao: (id, body) => request(`/api/assets/${id}/devolucao`, { method: 'POST', body }),
+    confirmarDevolucao: (id, devolucaoId, body) => request(`/api/assets/${id}/devolucao/${devolucaoId}`, { method: 'PATCH', body }),
   },
 };
 
