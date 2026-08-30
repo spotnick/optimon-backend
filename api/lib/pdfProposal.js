@@ -22,13 +22,13 @@ const LOGO_DARK_AVAILABLE = fs.existsSync(LOGO_DARK_PATH);
 const LOGO_ICON_AVAILABLE = fs.existsSync(LOGO_ICON_PATH);
 
 // Fase 3.8 (item 1/2 — identidade visual): paleta oficial OptiMon (azul-petróleo
-// #06263F, teal #0D9488/#14B8A6/#2DD4BF) — antes desta correção o PDF de proposta
+// #0F172A, teal #0891B2/#06B6D4/#22D3EE) — antes desta correção o PDF de proposta
 // usava um verde inventado (#0e6e55) sem nenhuma relação com a marca real do
 // sistema (a mesma usada no frontend e no logo, ver web/public/branding/).
-const INK = '#06263F';
+const INK = '#0F172A';
 const MUTED = '#5b6b7f';
-const ACCENT = '#0D9488';
-const ACCENT_LIGHT = '#E1F5F1';
+const ACCENT = '#0891B2';
+const ACCENT_LIGHT = '#E1F6FA';
 const LINE = '#d8dee5';
 const PAGE_MARGIN = 50;
 
@@ -142,7 +142,7 @@ function drawBarChart(doc, chart) {
 function renderCoverPage(doc, model) {
   const F = doc._brandFonts;
   const { width, height } = doc.page;
-  doc.rect(0, 0, width, height).fill('#06263F');
+  doc.rect(0, 0, width, height).fill('#0F172A');
   doc.rect(0, height - 180, width, 180).fill('#0A3654');
 
   if (LOGO_DARK_AVAILABLE) {

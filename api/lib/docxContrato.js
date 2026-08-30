@@ -24,9 +24,9 @@ const LOGO_ASPECT = 1350 / 250;
 // real — a diferenciação visual entre minuta e proposta comercial (preservada)
 // agora usa o AZUL oficial (a proposta usa o TEAL, ver docxProposal.js), os dois
 // dentro da mesma família de marca.
-const ACCENT = '145D9C';
-const ACCENT_LIGHT = 'E3EEF7';
-const INK = '06263F';
+const ACCENT = '2563EB';
+const ACCENT_LIGHT = 'E5ECFD';
+const INK = '0F172A';
 const MUTED = '5B6B7F';
 const WARN = 'B45309';
 
@@ -137,7 +137,7 @@ async function generateContratoDocx(dados) {
     spacing: { after: 300 },
     shading: { type: ShadingType.CLEAR, fill: 'FEF3C7' },
     children: [new TextRun({
-      text: 'MINUTA SUJEITA À APROVAÇÃO JURÍDICA — NÃO ASSINAR SEM REVISÃO. Este documento é gerado automaticamente a partir dos dados do sistema OptiMon e não constitui, em nenhuma hipótese, um contrato definitivo ou vinculante até revisão e aprovação do departamento jurídico da NICK.',
+      text: 'MINUTA PARA ANÁLISE JURÍDICA — NÃO ASSINAR SEM REVISÃO DO JURÍDICO. Este documento é gerado automaticamente a partir dos dados do sistema OptiMon e não constitui, em nenhuma hipótese, um contrato definitivo ou vinculante até revisão e aprovação do departamento jurídico da NICK.',
       bold: true, color: WARN, size: 20,
     })],
   });

@@ -26,9 +26,9 @@ const LOGO_ASPECT = 1350 / 250; // proporção real do arquivo gerado (item 3.4)
 // Fase 3.8 (item 1/2 — identidade visual): paleta oficial OptiMon (mesma do PDF de
 // proposta, pdfProposal.js) — antes usava um verde inventado (0E6E55) sem relação
 // com a marca real (frontend/logo).
-const ACCENT = '0D9488';
-const ACCENT_LIGHT = 'E1F5F1';
-const INK = '06263F';
+const ACCENT = '0891B2';
+const ACCENT_LIGHT = 'E1F6FA';
+const INK = '0F172A';
 const MUTED = '5B6B7F';
 
 function noBorders() {

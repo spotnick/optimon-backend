@@ -21,10 +21,10 @@ const LOGO_ICON_AVAILABLE = fs.existsSync(LOGO_ICON_PATH);
 // TEAL, ver pdfProposal.js) — os dois dentro da mesma família de marca, nunca mais
 // uma cor inventada. WARN/WARN_BG (âmbar) são cor semântica de alerta, separada de
 // propósito do accent de marca — mantidas.
-const INK = '#06263F';
+const INK = '#0F172A';
 const MUTED = '#5b6b7f';
-const ACCENT = '#145D9C';
-const ACCENT_LIGHT = '#E3EEF7';
+const ACCENT = '#2563EB';
+const ACCENT_LIGHT = '#E5ECFD';
 const WARN = '#b45309';
 const WARN_BG = '#fef3c7';
 const LINE = '#d8dee5';
@@ -47,7 +47,7 @@ function drawHeaderFooter(doc, model, pageIndex, pageCount) {
     .font(F.body).fillColor(MUTED)
     .text(`  |  Minuta de Contrato ${model.numero || ''} (V${model.numero_versao || 1})`, { continued: false });
   doc.fontSize(8).fillColor(WARN).font(F.bodySemibold)
-    .text('SUJEITA À APROVAÇÃO JURÍDICA', width - PAGE_MARGIN - 200, 24, { width: 200, align: 'right' });
+    .text('PARA ANÁLISE JURÍDICA', width - PAGE_MARGIN - 200, 24, { width: 200, align: 'right' });
   doc.moveTo(PAGE_MARGIN, 38).lineTo(width - PAGE_MARGIN, 38).strokeColor(LINE).lineWidth(0.5).stroke();
   doc.moveTo(PAGE_MARGIN, height - 40).lineTo(width - PAGE_MARGIN, height - 40).strokeColor(LINE).lineWidth(0.5).stroke();
   // O texto do rodapé fica DENTRO da margem inferior da página (área reservada pelo
@@ -101,11 +101,11 @@ function drawTableRows(doc, rows) {
 function renderCoverPage(doc, model) {
   const F = doc._brandFonts;
   const { width, height } = doc.page;
-  doc.rect(0, 0, width, height).fill('#145D9C');
+  doc.rect(0, 0, width, height).fill(ACCENT);
   doc.rect(0, height - 200, width, 200).fill(WARN_BG);
   // Texto sobre o retângulo WARN_BG (âmbar claro) — precisa de tinta escura para
   // contraste, nunca branco (diferente do restante da capa, que fica sobre o azul).
-  doc.fillColor(WARN).font(F.displayBold).fontSize(13).text('MINUTA SUJEITA À APROVAÇÃO JURÍDICA — NÃO ASSINAR SEM REVISÃO', PAGE_MARGIN, height - 180, { width: width - 2 * PAGE_MARGIN });
+  doc.fillColor(WARN).font(F.displayBold).fontSize(13).text('MINUTA PARA ANÁLISE JURÍDICA — NÃO ASSINAR SEM REVISÃO DO JURÍDICO', PAGE_MARGIN, height - 180, { width: width - 2 * PAGE_MARGIN });
   doc.fontSize(9).font(F.body).fillColor(INK).text('Este documento é gerado automaticamente a partir dos dados do sistema OptiMon e não constitui, em nenhuma hipótese, um contrato definitivo ou vinculante até revisão e aprovação do departamento jurídico da NICK.', PAGE_MARGIN, height - 158, { width: width - 2 * PAGE_MARGIN });
 
   if (LOGO_DARK_AVAILABLE) {
@@ -155,7 +155,7 @@ async function generateContratoPdf(dados) {
     const doc = new PDFDocument({ size: 'A4', margin: PAGE_MARGIN, bufferPages: true, info: {
       Title: `Minuta de Contrato ${model.numero || ''}`,
       Author: 'OptiMon',
-      Subject: `MINUTA SUJEITA A APROVAÇÃO JURÍDICA — ${model.cidade_nome || ''}`,
+      Subject: `MINUTA PARA ANÁLISE JURÍDICA — ${model.cidade_nome || ''}`,
     } });
     // Fase 3.8 (item 3.8-07): registra Manrope/Inter/IBM Plex Mono neste documento —
     // ver comentário equivalente em pdfProposal.js.
