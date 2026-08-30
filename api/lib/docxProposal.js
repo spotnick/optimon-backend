@@ -21,7 +21,7 @@ const { buildProposalDocumentModel, fmtBRL, fmtPct, fmtInt, fmtDate } = require(
 // cai de volta para o texto "OPTIMON" simples, como era antes desta correção.
 const LOGO_PATH = path.join(__dirname, '..', '..', 'web', 'public', 'branding', 'optimon-logo-lockup.png');
 const LOGO_AVAILABLE = fs.existsSync(LOGO_PATH);
-const LOGO_ASPECT = 1350 / 250; // proporção real do arquivo gerado (item 3.4) — nunca distorcer.
+const LOGO_ASPECT = 695 / 195; // proporção real do PNG oficial (pacote de marca, Fase 3.9) — nunca distorcer.
 
 // Fase 3.8 (item 1/2 — identidade visual): paleta oficial OptiMon (mesma do PDF de
 // proposta, pdfProposal.js) — antes usava um verde inventado (0E6E55) sem relação

@@ -17,7 +17,7 @@ const { buildContractDocumentModel, fmtDate } = require('./contractDocumentModel
 
 const LOGO_PATH = path.join(__dirname, '..', '..', 'web', 'public', 'branding', 'optimon-logo-lockup.png');
 const LOGO_AVAILABLE = fs.existsSync(LOGO_PATH);
-const LOGO_ASPECT = 1350 / 250;
+const LOGO_ASPECT = 695 / 195; // proporção real do PNG oficial (pacote de marca, Fase 3.9) — nunca distorcer.
 
 // Fase 3.8 (item 1/2 — identidade visual): paleta oficial OptiMon, igual ao
 // pdfContrato.js. Antes usava marrom/terracota (7C2D12), sem relação com a marca

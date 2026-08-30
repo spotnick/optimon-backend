@@ -42,11 +42,11 @@ export default function Layout() {
       <aside className="sidebar">
         <div className="sidebar-brand">
           <img
-            src="/branding/optimon-logo-lockup-dark.svg"
+            src="/branding/optimon-logo-lockup-dark.png"
             alt="OptiMon — Optical Asset & Pricing Management"
             className="lockup"
-            width="540"
-            height="100"
+            width="681"
+            height="195"
           />
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

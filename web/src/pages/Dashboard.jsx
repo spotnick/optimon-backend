@@ -66,7 +66,7 @@ export default function Dashboard() {
             pequeno, ao lado do título; nunca o lockup completo aqui (isso já
             fica na sidebar) para não competir com os KPIs. */}
         <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="/branding/optimon-icon.svg" alt="" width="24" height="24" style={{ display: 'block' }} />
+          <img src="/branding/optimon-icon.png" alt="" width="24" height="24" style={{ display: 'block' }} />
           Dashboard
         </h1>
         <p>Visão consolidada da rede, capacidade e operação comercial.</p>

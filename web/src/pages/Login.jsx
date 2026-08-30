@@ -40,14 +40,16 @@ export default function Login() {
       }}
     >
       <div style={{ width: '100%', maxWidth: 400 }}>
-        {/* Fase 3.8 (item 1): logo real (asset já existente em web/public/branding/),
-            versão para fundo escuro — nunca mais um placeholder gradiente + texto. */}
+        {/* Fase 3.9 (item 1): logo OFICIAL (pacote fornecido pelo usuário, extraído de
+            IdentidadeVisual.png — ver docs/branding/). PNG, não SVG: o vetor original
+            não foi disponibilizado (README-BRANDING.txt do pacote) — trocar por SVG
+            quando o vetor oficial existir, sem alterar a arte. */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
           <img
-            src="/branding/optimon-logo-lockup-dark.svg"
+            src="/branding/optimon-logo-lockup-dark.png"
             alt="OptiMon — Optical Asset & Pricing Management"
-            width="540"
-            height="100"
+            width="681"
+            height="195"
             style={{ width: 220, height: 'auto' }}
           />
         </div>
