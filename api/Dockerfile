@@ -16,6 +16,19 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY api/ .
 
+# Fase 3.9 (validação final): api/lib/pdfContrato.js, pdfProposal.js, docxContrato.js
+# e docxProposal.js resolvem o logo em runtime via
+# path.join(__dirname, '..', '..', 'web', 'public', 'branding', ...) — ou seja,
+# esperam a pasta em /web/public/branding dentro da imagem (dois níveis acima de
+# /app/lib). Como este estágio só copiava api/, esse caminho nunca existia e os
+# quatro geradores caíam silenciosamente no fallback de texto "OPTIMON" em vez do
+# logo real — confirmado inspecionando um PDF e um DOCX reais gerados em produção
+# (PDF com "OPTIMON" em texto na capa; DOCX sem nenhuma pasta word/media/, ou seja,
+# sem imagem embutida). Copiamos só a pasta de assets de marca (~550KB) para o
+# caminho exato que o código já espera — sem alterar nenhum PNG nem a lógica dos
+# geradores.
+COPY web/public/branding /web/public/branding
+
 # Nunca copiar .env para a imagem — variáveis reais vêm do painel do Railway (seção 8/53).
 RUN rm -f .env
 

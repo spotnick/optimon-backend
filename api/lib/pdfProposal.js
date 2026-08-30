@@ -146,13 +146,15 @@ function renderCoverPage(doc, model) {
   doc.rect(0, height - 180, width, 180).fill('#0A3654');
 
   if (LOGO_DARK_AVAILABLE) {
-    // Proporção real do arquivo (1350x250) — largura fixa, altura calculada para nunca
-    // distorcer a marca.
+    // Fase 3.9 (validação final): proporção real do asset oficial é 681x195 (~3.5:1),
+    // não 1350x250 como o comentário antigo dizia — esse valor errado fazia a
+    // legenda abaixo (y=128) colidir com a base real da imagem (y=78 + 230*195/681
+    // ≈ 144). Corrigido: legenda movida para depois da base da logo.
     doc.image(LOGO_DARK_PATH, PAGE_MARGIN, 78, { width: 230 });
   } else {
     doc.fillColor('#ffffff').font(F.display).fontSize(30).text('OPTIMON', PAGE_MARGIN, 90);
   }
-  doc.fontSize(12).font(F.body).fillColor('#B8E8DF').text('Infraestrutura de Rede Óptica — Cessão de Rede', PAGE_MARGIN, 128);
+  doc.fontSize(12).font(F.body).fillColor('#B8E8DF').text('Infraestrutura de Rede Óptica — Cessão de Rede', PAGE_MARGIN, 152);
 
   doc.fontSize(26).font(F.display).fillColor('#ffffff').text('Proposta Comercial', PAGE_MARGIN, 260, { width: width - 2 * PAGE_MARGIN });
   doc.fontSize(13).font(F.body).fillColor('#B8E8DF').text(model.modo === 'INTERNA' ? 'Documento de uso interno' : 'Documento para o parceiro', PAGE_MARGIN, 300);
