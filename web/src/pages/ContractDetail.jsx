@@ -88,7 +88,9 @@ export default function ContractDetail() {
   const [assinatura, setAssinatura] = useState(null);
   const [providers, setProviders] = useState([]);
   const [criandoEnvelope, setCriandoEnvelope] = useState(false);
-  const [novoSigner, setNovoSigner] = useState({ nome: '', email: '', papel: 'REPRESENTANTE_NICK', ordem: 1 });
+  const [novoSigner, setNovoSigner] = useState({ nome: '', email: '', papel: 'REPRESENTANTE_NICK', ordem: 1, obrigatorio: true });
+  const [reenviando, setReenviando] = useState(null); // id do signatário sendo reenviado
+  const [motivoReenvio, setMotivoReenvio] = useState({}); // signerId -> texto do motivo
 
   function loadAssinatura() {
     api.contracts.assinaturaStatus(id).then(setAssinatura).catch(() => setAssinatura(null));
@@ -125,12 +127,28 @@ export default function ContractDetail() {
     setActionError(null); setBusy(true);
     try {
       await api.signatures.addSigner(assinatura.envelope_id, novoSigner);
-      setNovoSigner({ nome: '', email: '', papel: 'REPRESENTANTE_PROPONENTE', ordem: (novoSigner.ordem || 1) + 1 });
+      setNovoSigner({ nome: '', email: '', papel: 'REPRESENTANTE_PROPONENTE', ordem: (novoSigner.ordem || 1) + 1, obrigatorio: true });
       loadAssinatura();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Erro ao adicionar signatário.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Fase 3.11.2 (seção 6): "REENVIAR ASSINATURA" — o servidor bloqueia reenvio para
+  // quem já assinou (nunca duplica assinatura).
+  async function handleResendSigner(signerId) {
+    setActionError(null); setBusy(true); setReenviando(signerId);
+    try {
+      await api.signatures.resendSigner(assinatura.envelope_id, signerId, { motivo: motivoReenvio[signerId] || undefined });
+      setActionMsg('Assinatura reenviada.');
+      setMotivoReenvio((s) => ({ ...s, [signerId]: '' }));
+      loadAssinatura();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao reenviar assinatura.');
+    } finally {
+      setBusy(false); setReenviando(null);
     }
   }
 
@@ -483,18 +501,50 @@ export default function ContractDetail() {
               Envelope: <Link className="link-tab" to={`/assinaturas/${assinatura.envelope_id}`}>{assinatura.envelope_id.slice(0, 8)}…</Link>
               {' — '}status: <span className="badge">{assinatura.envelope_status}</span>
               {assinatura.documento_assinado_disponivel && <span> · documento assinado validado ✓</span>}
+              {assinatura.erro_mensagem && <span style={{ color: 'var(--text-danger, #b42828)' }}> · erro: {assinatura.erro_mensagem}</span>}
             </p>
+            {/* Fase 3.11.2 (seções 4/5): status independente por signatário — nunca só
+                "ENVIADO" tratado como prova de entrega — com data/hora de cada etapa e
+                opção de reenvio (nunca duplica quem já assinou). */}
             {assinatura.signatarios?.length > 0 && (
               <div className="table-scroll" style={{ marginBottom: 12 }}>
                 <table>
-                  <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th>Assinado em</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Nome</th><th>Papel</th><th>Obrigatório</th><th>Status</th>
+                      <th>Enviado em</th><th>Entregue em</th><th>Aberto em</th><th>Assinado em</th><th>Ações</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {assinatura.signatarios.map((s) => (
                       <tr key={s.id}>
-                        <td>{s.nome}</td>
+                        <td>{s.nome}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{s.email}</div></td>
                         <td>{s.papel}</td>
-                        <td>{s.status}</td>
+                        <td>{s.obrigatorio === false ? 'Não' : 'Sim'}</td>
+                        <td>
+                          <span className="badge">{s.status}</span>
+                          {s.erro_mensagem && <div style={{ fontSize: '0.75rem', color: 'var(--text-danger, #b42828)' }}>{s.erro_mensagem}</div>}
+                          {s.reenvios_count > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>reenviado {s.reenvios_count}x</div>}
+                        </td>
+                        <td>{s.enviado_em ? new Date(s.enviado_em).toLocaleString('pt-BR') : '—'}</td>
+                        <td>{s.entregue_em ? new Date(s.entregue_em).toLocaleString('pt-BR') : '—'}</td>
+                        <td>{s.aberto_em ? new Date(s.aberto_em).toLocaleString('pt-BR') : '—'}</td>
                         <td>{s.assinado_em ? new Date(s.assinado_em).toLocaleString('pt-BR') : '—'}</td>
+                        <td>
+                          {s.status !== 'ASSINADO' && (
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              <input
+                                placeholder="Motivo (opcional)"
+                                style={{ fontSize: '0.75rem', width: 110 }}
+                                value={motivoReenvio[s.id] || ''}
+                                onChange={(e) => setMotivoReenvio((st) => ({ ...st, [s.id]: e.target.value }))}
+                              />
+                              <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 8px' }} disabled={busy && reenviando === s.id} onClick={() => handleResendSigner(s.id)}>
+                                Reenviar
+                              </button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -503,18 +553,29 @@ export default function ContractDetail() {
             )}
             {assinatura.envelope_status === 'CRIADO' && (
               <>
-                <form onSubmit={handleAddSignerContrato} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 2fr auto', gap: 12, alignItems: 'flex-end', marginBottom: 12 }}>
+                <form onSubmit={handleAddSignerContrato} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 2fr auto auto', gap: 12, alignItems: 'flex-end', marginBottom: 12 }}>
                   <div className="field"><label>Nome</label><input required value={novoSigner.nome} onChange={(e) => setNovoSigner({ ...novoSigner, nome: e.target.value })} /></div>
                   <div className="field"><label>E-mail</label><input required type="email" value={novoSigner.email} onChange={(e) => setNovoSigner({ ...novoSigner, email: e.target.value })} /></div>
                   <div className="field">
+                    {/* Fase 3.11.2 (seção 7): papéis configuráveis — Testemunha/Outro
+                        acrescentados (antes só NICK/Proponente apareciam aqui). */}
                     <label>Papel</label>
                     <select value={novoSigner.papel} onChange={(e) => setNovoSigner({ ...novoSigner, papel: e.target.value })}>
                       <option value="REPRESENTANTE_NICK">Representante NICK</option>
-                      <option value="REPRESENTANTE_PROPONENTE">Representante do Parceiro</option>
+                      <option value="REPRESENTANTE_PROPONENTE">Representante do Parceiro (principal ou adicional)</option>
+                      <option value="TESTEMUNHA">Testemunha</option>
+                      <option value="OUTRO">Outro</option>
                     </select>
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>
+                    <input type="checkbox" checked={novoSigner.obrigatorio !== false} onChange={(e) => setNovoSigner({ ...novoSigner, obrigatorio: e.target.checked })} />
+                    Obrigatório
+                  </label>
                   <button type="submit" className="btn btn-secondary" disabled={busy}>Adicionar signatário</button>
                 </form>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 12 }}>
+                  O contrato só pode ficar ASSINADO quando todos os signatários marcados como <strong>Obrigatório</strong> tiverem assinado — desmarque para um signatário adicional/testemunha cuja assinatura não bloqueia o fechamento.
+                </p>
                 <button className="btn btn-primary" disabled={busy || !assinatura.signatarios?.length} onClick={handleEnviarParaAssinaturaContrato}>
                   Enviar para assinatura
                 </button>

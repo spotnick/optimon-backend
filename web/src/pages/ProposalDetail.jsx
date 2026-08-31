@@ -311,13 +311,51 @@ export default function ProposalDetail() {
                 <span>1ª visualização: {new Date(proposta.primeira_visualizacao_em).toLocaleString('pt-BR')}</span>
               )}
             </div>
+            {/* Fase 3.11.2 (seção 9): revogação MANUAL do link, antes do vencimento
+                natural — só faz sentido enquanto ainda não há aceite/recusa. */}
+            {canSendToPartner && ['ENVIADA_AO_PARCEIRO', 'VISUALIZADA_PELO_PARCEIRO'].includes(status) && !proposta.token_revogado_em && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  className="btn btn-danger"
+                  disabled={busy}
+                  onClick={() => {
+                    const motivo = window.prompt('Motivo da revogação do link (obrigatório para auditoria):');
+                    if (motivo && motivo.trim()) runAction(() => api.proposals.revokeToken(id, { motivo: motivo.trim() }));
+                  }}
+                >
+                  Revogar link externo
+                </button>
+              </div>
+            )}
+            {proposta.token_revogado_em && (
+              <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: 'rgba(180,40,40,0.08)', fontSize: '0.85rem' }}>
+                <strong>Link revogado</strong> em {new Date(proposta.token_revogado_em).toLocaleString('pt-BR')}
+                {proposta.token_revogado_motivo ? ` — motivo: ${proposta.token_revogado_motivo}` : ''}. O parceiro não consegue mais abrir este link.
+              </div>
+            )}
             {status === 'ACEITA_PELO_PARCEIRO' && (
-              <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: 'rgba(14,110,85,0.08)' }}>
-                <strong>Aceite formal registrado pelo parceiro</strong>
-                <div style={{ fontSize: '0.85rem', marginTop: 4 }}>
-                  {proposta.aceite_nome} ({proposta.aceite_cargo || 'cargo não informado'}) — {proposta.aceite_documento}
-                  {proposta.aceite_email ? ` · ${proposta.aceite_email}` : ''}
-                  {proposta.aceite_em ? ` · em ${new Date(proposta.aceite_em).toLocaleString('pt-BR')}` : ''}
+              <div style={{ marginTop: 10, padding: 14, borderRadius: 6, background: 'rgba(14,110,85,0.08)' }}>
+                <strong>ACEITE DO PARCEIRO</strong>
+                {/* Fase 3.11.2 (seção 2): todos os campos de auditoria do aceite formal,
+                    confirmado por código (OTP) — nunca só "status=ACEITA" como prova. */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', fontSize: '0.85rem', marginTop: 8 }}>
+                  <div><strong>Status:</strong> Aceito</div>
+                  <div><strong>Método:</strong> {proposta.aceite_metodo === 'OTP_EMAIL' ? 'Confirmação por código (e-mail)' : (proposta.aceite_metodo || '—')}</div>
+                  <div><strong>Representante:</strong> {proposta.aceite_nome || '—'}{proposta.aceite_cargo ? ` (${proposta.aceite_cargo})` : ''}</div>
+                  <div><strong>CPF:</strong> {proposta.aceite_documento || '—'}</div>
+                  <div><strong>E-mail:</strong> {proposta.aceite_email || '—'}</div>
+                  <div><strong>Telefone:</strong> {proposta.aceite_telefone || '—'}</div>
+                  <div><strong>Data/hora:</strong> {proposta.aceite_em ? new Date(proposta.aceite_em).toLocaleString('pt-BR') : '—'}</div>
+                  <div><strong>IP:</strong> {proposta.aceite_ip || '—'}</div>
+                  <div><strong>Versão aceita:</strong> V{proposta.numero_versao || 1}{proposta.aceite_versao_termo ? ` · termo ${proposta.aceite_versao_termo}` : ''}</div>
+                  <div style={{ gridColumn: 'span 2', wordBreak: 'break-all' }}>
+                    <strong>Hash da proposta aceita:</strong> <code style={{ fontSize: '0.78rem' }}>{proposta.aceite_hash_proposta || '—'}</code>
+                  </div>
+                  {proposta.aceite_user_agent && (
+                    <div style={{ gridColumn: 'span 2', fontSize: '0.75rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
+                      <strong>User-agent:</strong> {proposta.aceite_user_agent}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

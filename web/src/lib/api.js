@@ -173,6 +173,9 @@ export const api = {
     // Fase 3.11 (seções 5-9): "Enviar ao Parceiro" (gera token+link real) e o
     // "Histórico da Negociação" (linha do tempo derivada da auditoria real).
     sendToPartner: (id) => request(`/api/proposals/${id}/send-to-partner`, { method: 'POST' }),
+    // Fase 3.11.2 (seção 9): revogação MANUAL do link externo, antes do vencimento
+    // natural — depois disso o link para de funcionar por completo.
+    revokeToken: (id, body = {}) => request(`/api/proposals/${id}/revoke-token`, { method: 'POST', body }),
     historico: (id) => request(`/api/proposals/${id}/historico`),
   },
 
@@ -182,7 +185,11 @@ export const api = {
   // usuário logado da NICK). Mapeia 1:1 as 3 rotas de api/routes/proposalsExternal.js.
   proposalsExternal: {
     get: (token) => requestExternal(`/api/proposals/external/${token}`),
-    accept: (token, body) => requestExternal(`/api/proposals/external/${token}/accept`, { method: 'POST', body }),
+    // Fase 3.11.2 (seção 1): aceite em 2 passos — iniciar (dados + declaração + checkbox,
+    // gera e "envia" o código de confirmação) e confirmar (valida o código; só aqui o
+    // aceite formal é registrado). O aceite em 1 passo antigo foi desativado no backend.
+    acceptIniciar: (token, body) => requestExternal(`/api/proposals/external/${token}/accept/iniciar`, { method: 'POST', body }),
+    acceptConfirmar: (token, body) => requestExternal(`/api/proposals/external/${token}/accept/confirmar`, { method: 'POST', body }),
     decline: (token, body) => requestExternal(`/api/proposals/external/${token}/decline`, { method: 'POST', body }),
   },
 
@@ -238,6 +245,9 @@ export const api = {
     envelope: (id) => request(`/api/signatures/envelopes/${id}`),
     createEnvelope: (formData) => uploadMultipart('/api/signatures/envelopes', formData),
     addSigner: (id, body) => request(`/api/signatures/envelopes/${id}/signers`, { method: 'POST', body }),
+    // Fase 3.11.2 (seção 6): "REENVIAR ASSINATURA" — bloqueado no servidor para
+    // signatário que já assinou (nunca duplica assinatura).
+    resendSigner: (envelopeId, signerId, body = {}) => request(`/api/signatures/envelopes/${envelopeId}/signers/${signerId}/resend`, { method: 'POST', body }),
     send: (id) => request(`/api/signatures/envelopes/${id}/send`, { method: 'POST' }),
     cancel: (id, body) => request(`/api/signatures/envelopes/${id}/cancel`, { method: 'POST', body }),
     document: (id) => request(`/api/signatures/envelopes/${id}/document`),

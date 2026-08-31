@@ -19,8 +19,14 @@ export default function PartnerExternalProposal() {
   const [busy, setBusy] = useState(false);
   const [modoForm, setModoForm] = useState(null); // null | 'ACEITAR' | 'RECUSAR'
   const [form, setForm] = useState({ nome: '', documento: '', cargo: '', email: '', telefone: '' });
+  const [declaracao, setDeclaracao] = useState(false);
+  const [confirmacao, setConfirmacao] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
   const [confirmado, setConfirmado] = useState(null); // 'ACEITA' | 'RECUSADA'
+  // Fase 3.11.2 (seção 1, itens 5-11): aceite agora exige confirmação por código (OTP)
+  // enviado ao e-mail informado — nenhum aceite é registrado sem essa segunda etapa.
+  const [etapaOtp, setEtapaOtp] = useState(null); // null | { tentativaId, expiraEm, emailMascarado }
+  const [otpInput, setOtpInput] = useState('');
 
   const load = useCallback(() => {
     setError(null);
@@ -29,23 +35,56 @@ export default function PartnerExternalProposal() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleAceitar() {
+  async function handleSolicitarOtp() {
     if (!form.nome || !form.documento || !form.email) {
-      setError('Nome completo, CPF/CNPJ e e-mail são obrigatórios para confirmar o aceite.');
+      setError('Nome completo, CPF e e-mail são obrigatórios.');
+      return;
+    }
+    if (!declaracao) {
+      setError('É necessário declarar que você é representante autorizado da empresa e possui poderes para manifestar o aceite.');
+      return;
+    }
+    if (!confirmacao) {
+      setError('É necessário confirmar o aceite e autorizar o prosseguimento para elaboração do contrato.');
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await api.proposalsExternal.accept(token, form);
-      setConfirmado('ACEITA');
-      setModoForm(null);
-      load();
+      const resp = await api.proposalsExternal.acceptIniciar(token, { ...form, declaracao, confirmacao });
+      setEtapaOtp({ tentativaId: resp.tentativa_id, expiraEm: resp.expira_em, emailMascarado: resp.email_mascarado });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erro ao registrar aceite.');
+      setError(err instanceof ApiError ? err.message : 'Erro ao solicitar código de confirmação.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleConfirmarOtp() {
+    if (!otpInput || otpInput.trim().length !== 6) {
+      setError('Informe o código de 6 dígitos recebido.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.proposalsExternal.acceptConfirmar(token, { tentativa_id: etapaOtp.tentativaId, otp: otpInput.trim() });
+      setConfirmado('ACEITA');
+      setModoForm(null);
+      setEtapaOtp(null);
+      setOtpInput('');
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao confirmar código.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleReiniciarAceite() {
+    setEtapaOtp(null);
+    setOtpInput('');
+    setError(null);
   }
 
   async function handleRecusar() {
@@ -195,19 +234,19 @@ export default function PartnerExternalProposal() {
               </>
             )}
 
-            {modoForm === 'ACEITAR' && (
+            {modoForm === 'ACEITAR' && !etapaOtp && (
               <div style={{ marginTop: 12 }}>
                 <div className="field-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div className="field">
-                    <label>Nome completo *</label>
+                    <label>Nome completo do representante *</label>
                     <input value={form.nome} onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} placeholder="Seu nome completo" />
                   </div>
                   <div className="field">
-                    <label>CPF/CNPJ *</label>
+                    <label>CPF *</label>
                     <input value={form.documento} onChange={(e) => setForm((f) => ({ ...f, documento: e.target.value }))} placeholder="000.000.000-00" />
                   </div>
                   <div className="field">
-                    <label>Cargo</label>
+                    <label>Cargo/função</label>
                     <input value={form.cargo} onChange={(e) => setForm((f) => ({ ...f, cargo: e.target.value }))} placeholder="Ex.: Diretor" />
                   </div>
                   <div className="field">
@@ -219,9 +258,49 @@ export default function PartnerExternalProposal() {
                     <input value={form.telefone} onChange={(e) => setForm((f) => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
                   </div>
                 </div>
+
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 16, fontSize: '0.85rem' }}>
+                  <input type="checkbox" checked={declaracao} onChange={(e) => setDeclaracao(e.target.checked)} style={{ marginTop: 3 }} />
+                  <span>Declaro que sou representante autorizado da empresa e que possuo poderes para manifestar o aceite desta proposta.</span>
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 10, fontSize: '0.85rem' }}>
+                  <input type="checkbox" checked={confirmacao} onChange={(e) => setConfirmacao(e.target.checked)} style={{ marginTop: 3 }} />
+                  <span>Confirmo o aceite desta proposta e autorizo o prosseguimento para elaboração do contrato.</span>
+                </label>
+
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 10 }}>
+                  Ao continuar, enviaremos um código de confirmação de 6 dígitos para o e-mail informado acima —
+                  o aceite só é registrado depois de você confirmar esse código.
+                </p>
+
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-primary" disabled={busy} onClick={handleAceitar}>Confirmar aceite</button>
+                  <button className="btn btn-primary" disabled={busy} onClick={handleSolicitarOtp}>Enviar código de confirmação</button>
                   <button className="btn btn-secondary" disabled={busy} onClick={() => setModoForm(null)}>Cancelar</button>
+                </div>
+              </div>
+            )}
+
+            {modoForm === 'ACEITAR' && etapaOtp && (
+              <div style={{ marginTop: 12 }}>
+                <p style={{ margin: '0 0 12px' }}>
+                  Enviamos um código de 6 dígitos para <strong>{etapaOtp.emailMascarado}</strong>. Informe-o abaixo para
+                  confirmar o aceite. O código expira em {new Date(etapaOtp.expiraEm).toLocaleTimeString('pt-BR')}.
+                </p>
+                <div className="field" style={{ maxWidth: 220 }}>
+                  <label>Código de confirmação *</label>
+                  <input
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    inputMode="numeric"
+                    maxLength={6}
+                    style={{ letterSpacing: '0.3em', fontSize: '1.2rem', textAlign: 'center' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-primary" disabled={busy} onClick={handleConfirmarOtp}>Confirmar aceite</button>
+                  <button className="btn btn-secondary" disabled={busy} onClick={handleReiniciarAceite}>Não recebi — solicitar novo código</button>
+                  <button className="btn btn-secondary" disabled={busy} onClick={() => { setModoForm(null); handleReiniciarAceite(); }}>Cancelar</button>
                 </div>
               </div>
             )}

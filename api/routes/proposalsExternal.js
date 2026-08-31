@@ -1,33 +1,74 @@
-// OptiMon Pricing API — Fase 3.11 (seções 5-9): área externa do parceiro.
+// OptiMon Pricing API — Fase 3.11 (seções 5-9), corrigida na Fase 3.11.2 (seção 1 do
+// pedido de correção crítica): área externa do parceiro.
 //
 // Rota SEM `requireAuth` — a única outra exceção nesta API além do webhook de
 // assinatura (api/routes/signatures.js). Quem chama é o parceiro, de fora, sem login
 // no OptiMon — a credencial é o próprio token opaco (64 hex, alta entropia) gerado por
-// app.enviar_proposta_parceiro, nunca um JWT. Por isso usa `anonClient()` (nunca
-// `clientForRequest`/service_role) e chama só as 3 RPCs com grant explícito para
-// `anon` (pricing_proposal_external_by_token/_accept/_decline — todas SECURITY
-// DEFINER no banco, ver migration 20261002090000). Toda validação de negócio
-// (token existe, não expirou, não cancelada, status correto, campos obrigatórios)
-// acontece dentro dessas funções no Postgres — esta rota nunca decide nada sozinha,
-// só encaminha.
+// app.enviar_proposta_parceiro, nunca um JWT.
+//
+// Fase 3.11.2: "abrir o link jamais pode representar aceite" já era verdade (GET só
+// visualiza), mas o aceite em 1 passo (POST /:token/accept, preencher formulário e
+// pronto) também era fraco demais — nada provava que quem preencheu o formulário tinha
+// acesso à caixa de e-mail informada. Substituído por 2 rotas nunca chamado por 1 passo
+// só: /accept/iniciar (gera e "envia" um código de confirmação — nunca muda o status da
+// proposta) e /accept/confirmar (só aqui o aceite formal acontece, e só com o código
+// certo). O código em si NUNCA aparece nesta resposta HTTP — ver api/lib/otpNotifier.js.
 //
 // Nunca expõe piso/margem/desconto/governança/custo interno/auditoria — a função do
 // banco já devolve um jsonb com whitelist explícita de campos (seção 7), então não há
 // nada a filtrar aqui: encaminhamos o retorno da RPC como está.
 
 const express = require('express');
+const crypto = require('crypto');
 const { anonClient } = require('../lib/supabaseClient');
+const { buildOtpNotifier } = require('../lib/otpNotifier');
 
 const router = express.Router();
+const otpNotifier = buildOtpNotifier();
+
+// Fase 3.11.2: pepper de defesa em profundidade para o hash do OTP — o código em si já
+// é de curta duração (10 min) + limitado a 5 tentativas + de uso único, então mesmo sem
+// pepper o risco de força bruta contra o hash (se o banco vazasse) seria baixo; o pepper
+// só torna isso ainda mais caro. Mesmo padrão de variável de ambiente com default de
+// desenvolvimento documentado já usado para FASE25_TEST_WEBHOOK_SECRET — nunca usar o
+// default em produção (ver .env.example).
+const OTP_PEPPER = process.env.OTP_HASH_PEPPER || 'optimon-otp-pepper-dev-nao-usar-em-producao';
+
+function hashOtp(otp) {
+  return crypto.createHash('sha256').update(`${otp}:${OTP_PEPPER}`).digest('hex');
+}
+
+function generateOtp() {
+  // 6 dígitos, 000000-999999 — crypto.randomInt é CSPRNG (não Math.random).
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+function maskEmail(email) {
+  const [user, domain] = String(email || '').split('@');
+  if (!domain) return '***';
+  const visible = user.slice(0, 2);
+  return `${visible}${'*'.repeat(Math.max(user.length - visible.length, 1))}@${domain}`;
+}
+
+function clientIp(req) {
+  // Fase 3.11.2: IP real do parceiro (req.ip do Express, já configurado a partir de
+  // X-Forwarded-For pelo Railway/proxy) — nunca o IP do próprio servidor Node (bug real
+  // documentado na migration 20261003100000: o GUC request.headers do PostgREST só via
+  // o IP de quem chama o PostgREST, que é sempre este servidor Node, nunca o navegador
+  // do parceiro).
+  return req.ip || req.headers['x-forwarded-for'] || null;
+}
 
 function handleError(res, error) {
   const message = error?.message || 'Erro inesperado.';
   let status;
-  if (/TOKEN_INVALIDO|NAO_ENCONTRAD/i.test(message)) {
+  if (/TOKEN_INVALIDO|NAO_ENCONTRAD|TENTATIVA_INVALIDA/i.test(message)) {
     status = 404;
-  } else if (/TOKEN_EXPIRADO|STATUS_INVALIDO|CANCELADA/i.test(message)) {
+  } else if (/TOKEN_EXPIRADO|STATUS_INVALIDO|CANCELADA|ACEITE_DUPLICADO|TENTATIVA_EXPIRADA|OTP_EXPIRADO|OTP_BLOQUEADO/i.test(message)) {
     status = 409;
-  } else if (/DADOS_OBRIGATORIOS|MOTIVO_OBRIGATORIO|obrigatóri|inválido/i.test(message)) {
+  } else if (/OTP_INCORRETO/i.test(message)) {
+    status = 401;
+  } else if (/DADOS_OBRIGATORIOS|MOTIVO_OBRIGATORIO|DECLARACAO_OBRIGATORIA|CONFIRMACAO_OBRIGATORIA|OTP_INVALIDO|obrigatóri|inválido/i.test(message)) {
     status = 400;
   } else {
     status = 400;
@@ -36,7 +77,9 @@ function handleError(res, error) {
 }
 
 // GET /api/proposals/external/:token — carrega a proposta pelo token (e já registra a
-// visualização — PROPOSAL_VIEWED_BY_PARTNER — a cada chamada, seção 8).
+// visualização — PROPOSAL_VIEWED_BY_PARTNER — a cada chamada, seção 8). Isto é SÓ
+// visualização — nunca representa aceite (seção 1, item "ABRIR O LINK JAMAIS PODE
+// REPRESENTAR ACEITE" — inalterado desde a Fase 3.11, reconfirmado aqui).
 router.get('/:token', async (req, res) => {
   const supabase = anonClient();
   const { data, error } = await supabase.rpc('pricing_proposal_external_by_token', {
@@ -46,32 +89,74 @@ router.get('/:token', async (req, res) => {
   return res.json(data);
 });
 
-// POST /api/proposals/external/:token/accept — aceite formal do parceiro (seção 9).
-// Nunca um setState de frontend: nome/documento/email obrigatórios, validado e
-// registrado no servidor, com IP e timestamp reais.
-router.post('/:token/accept', async (req, res) => {
-  const { nome, documento, cargo, email, telefone } = req.body || {};
+// POST /api/proposals/external/:token/accept/iniciar — passo 1 do aceite (Fase 3.11.2,
+// seção 1, itens 1-9): valida dados/declaração/checkbox, gera o OTP (em Node — o
+// Postgres nunca vê o valor em texto puro), "envia" via otpNotifier, e devolve só
+// {tentativa_id, expira_em, email_mascarado} — NUNCA o código.
+router.post('/:token/accept/iniciar', async (req, res) => {
+  const { nome, documento, cargo, email, telefone, declaracao, confirmacao } = req.body || {};
   const supabase = anonClient();
-  const { data, error } = await supabase.rpc('pricing_proposal_external_accept', {
+
+  const otp = generateOtp();
+  const otpHash = hashOtp(otp);
+
+  const { data, error } = await supabase.rpc('pricing_proposal_external_accept_iniciar', {
     p_token: req.params.token,
     p_nome: nome ?? null,
     p_documento: documento ?? null,
     p_cargo: cargo ?? null,
     p_email: email ?? null,
     p_telefone: telefone ?? null,
+    p_declaracao: declaracao === true,
+    p_confirmacao: confirmacao === true,
+    p_otp_hash: otpHash,
+    p_otp_ttl_minutos: 10,
+    p_ip: clientIp(req),
+    p_user_agent: req.headers['user-agent'] || null,
+  });
+  if (error) return handleError(res, error);
+
+  // Só "envia" depois que a tentativa foi validada e persistida — nunca gera um OTP que
+  // não tenha hash gravado no banco correspondente.
+  await otpNotifier.sendOtp({ email, nome, propostaNumero: data?.tentativa_id, otp, expiraEm: data?.expira_em });
+
+  return res.status(201).json({
+    tentativa_id: data.tentativa_id,
+    expira_em: data.expira_em,
+    email_mascarado: maskEmail(email),
+  });
+});
+
+// POST /api/proposals/external/:token/accept/confirmar — passo 2 (Fase 3.11.2, seção 1,
+// itens 10-12): só aqui o aceite formal é efetivado, e só com o código certo.
+router.post('/:token/accept/confirmar', async (req, res) => {
+  const { tentativa_id, otp } = req.body || {};
+  if (!tentativa_id || !otp) {
+    return res.status(400).json({ error: 'DADOS_OBRIGATORIOS: tentativa_id e otp são obrigatórios.' });
+  }
+  const supabase = anonClient();
+  const { data, error } = await supabase.rpc('pricing_proposal_external_accept_confirmar', {
+    p_token: req.params.token,
+    p_tentativa_id: tentativa_id,
+    p_otp_hash_attempt: hashOtp(String(otp).trim()),
+    p_ip: clientIp(req),
+    p_user_agent: req.headers['user-agent'] || null,
   });
   if (error) return handleError(res, error);
   return res.json(data);
 });
 
 // POST /api/proposals/external/:token/decline — recusa formal do parceiro (motivo
-// sempre obrigatório).
+// sempre obrigatório). Não passa por OTP (o pedido de correção exige confirmação
+// reforçada só para o ACEITE — recusar não gera nenhum compromisso comercial).
 router.post('/:token/decline', async (req, res) => {
   const { motivo } = req.body || {};
   const supabase = anonClient();
   const { data, error } = await supabase.rpc('pricing_proposal_external_decline', {
     p_token: req.params.token,
     p_motivo: motivo ?? null,
+    p_ip: clientIp(req),
+    p_user_agent: req.headers['user-agent'] || null,
   });
   if (error) return handleError(res, error);
   return res.json(data);

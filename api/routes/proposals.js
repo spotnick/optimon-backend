@@ -219,6 +219,21 @@ router.post('/:id/send-to-partner', async (req, res) => {
   return res.json(data);
 });
 
+// POST /api/proposals/:id/revoke-token — Fase 3.11.2 (seção 9): revogação MANUAL do
+// link externo, antes do vencimento natural (ex.: suspeita de vazamento, mudança de
+// interlocutor no parceiro). Depois disso o link para de funcionar por completo — nem
+// visualização, nem aceite, nem recusa. Checagem de perfil dentro de
+// app.revogar_token_proposta (SECURITY DEFINER), mesmo padrão de send-to-partner acima.
+router.post('/:id/revoke-token', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_proposal_revoke_token', {
+    p_proposta_id: req.params.id,
+    p_motivo: req.body?.motivo ?? null,
+  });
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
 // GET /api/proposals/:id/historico — Fase 3.11 (seção 23): "Histórico da Negociação",
 // derivado direto da tabela de auditoria real (proposta + contrato vinculado, quando
 // existir) — nunca uma tabela paralela que pode divergir da auditoria.

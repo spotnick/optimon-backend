@@ -31,6 +31,16 @@ const { getVersionInfo } = require('./lib/version');
 
 const app = express();
 
+// Fase 3.11.2: sem isto, req.ip nunca reflete o IP real de quem chama — atrás do proxy
+// do Railway (ou de qualquer outro reverse proxy), req.ip cairia sempre no IP do próprio
+// proxy, nunca no do navegador do parceiro. Bug real, confirmado por leitura de código,
+// que tornava aceite_ip/auditoria de IP inúteis para qualquer chamada vinda de trás de
+// um proxy — descoberto ao corrigir a captura de IP do aceite externo (seção 2/9 do
+// pedido de correção). `true` confia no X-Forwarded-For tal como o proxy da plataforma
+// o define — ambiente local (sem proxy) continua funcionando normalmente (Express usa a
+// conexão direta quando não há X-Forwarded-For).
+app.set('trust proxy', true);
+
 // Fase 2.5 seção 27/49: o webhook de assinatura precisa do CORPO BRUTO (para
 // validar o HMAC — ver api/routes/signatures.js) e nunca passa por
 // `requireAuth` (quem chama é o provedor externo, sem JWT de usuário) — por

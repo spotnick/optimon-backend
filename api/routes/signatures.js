@@ -305,6 +305,9 @@ router.post('/envelopes/:id/signers', async (req, res) => {
     p_ordem: b.ordem ?? 1,
     p_cpf: b.cpf ?? null,
     p_responsavel_id: b.responsavel_id ?? null,
+    // Fase 3.11.2 (seção 7): "definir quais assinaturas são obrigatórias" — default
+    // true (mesmo default do banco) quando o chamador não especifica.
+    p_obrigatorio: b.obrigatorio === undefined ? true : !!b.obrigatorio,
   });
   if (error) return handleError(res, error);
 
@@ -345,6 +348,38 @@ router.post('/envelopes/:id/send', async (req, res) => {
   const { data, error } = await supabase.rpc('pricing_signature_envelope_send', { p_envelope_id: req.params.id, p_provider_envelope_id: null });
   if (error) return handleError(res, error);
   return res.json(data);
+});
+
+// POST /api/signatures/envelopes/:id/signers/:signerId/resend — "REENVIAR ASSINATURA"
+// (Fase 3.11.2, seção 6 do pedido de correção). Nunca duplica assinatura (bloqueado no
+// banco — app.reenviar_assinatura_signatario recusa signatário já ASSINADO). Best-effort
+// no provedor mock, mesmo padrão de POST /envelopes/:id/signers acima — o estado de
+// verdade é sempre o do OptiMon.
+router.post('/envelopes/:envelopeId/signers/:signerId/resend', async (req, res) => {
+  const { motivo } = req.body || {};
+  const supabase = clientForRequest(req.userJwt);
+
+  const { data: signer, error } = await supabase.rpc('pricing_signature_signer_resend', {
+    p_signer_id: req.params.signerId,
+    p_motivo: motivo ?? null,
+  });
+  if (error) return handleError(res, error);
+
+  try {
+    const { data: envelopeRow } = await supabase.from('signature_envelopes').select('provider_id, provider_envelope_id').eq('id', req.params.envelopeId).maybeSingle();
+    if (envelopeRow?.provider_envelope_id) {
+      const { data: providerRow } = await supabase.from('signature_providers').select('*').eq('id', envelopeRow.provider_id).maybeSingle();
+      if (providerRow) {
+        const provider = buildProvider(providerRow);
+        await provider.sendForSignature(envelopeRow.provider_envelope_id);
+      }
+    }
+  } catch (_err) {
+    // Falha do provedor mock não impede o reenvio local — best-effort, mesmo padrão do
+    // resto deste arquivo.
+  }
+
+  return res.json(signer);
 });
 
 // POST /api/signatures/envelopes/:id/cancel — cancelEnvelope (seção 5). Só
