@@ -73,10 +73,32 @@ echo "############################################################"
 # idempotente. Num banco realmente novo (marcador ausente), as 3 aplicam em ordem, do
 # zero, como uma instalação real faria.
 JA_TEM_3112=$(scalar "select exists(select 1 from information_schema.columns where table_name='propostas_comerciais' and column_name='token_revogado_em');")
+# Fase 3.11.3: marcador próprio (coluna nova em propostas_aceite_tentativas). MESMA REGRA
+# já documentada para a 3.11.2: só a migration MAIS NOVA já aplicada é replayed (para
+# provar sua própria idempotência) — nunca uma mais antiga. Replayar 20261003100000
+# (3.11.2) depois que 20261004090000 (3.11.3) já ampliou auditoria_acao_check E já gerou
+# linhas de auditoria com as ações novas (PROPOSAL_ACCEPT_EMAIL_*) é exatamente o mesmo
+# artefato de replay-por-cima-de-versão-mais-nova já documentado — real, encontrado ao
+# rodar (não presumido): "check constraint auditoria_acao_check... violated by some row".
+# Nunca acontece numa instalação real (migrations aplicam uma vez, em ordem, para a
+# frente). Corrigido aqui: quando o marcador da 3.11.3 já existe, SÓ ela é replayed.
 rm -f /tmp/fase311_mig.log
 MIG_OK=1
-if [ "$JA_TEM_3112" = "t" ]; then
-  echo "Banco já tem a Fase 3.11.2 aplicada de uma execução anterior — não fazendo replay de 20261002090000/20261002100000 (isso nunca acontece numa instalação real); reaplicando só 20261003100000 para provar sua idempotência real (DROP FUNCTION/DROP TRIGGER IF EXISTS explícitos)." | tee -a /tmp/fase311_mig.log
+JA_TEM_3113=$(scalar "select exists(select 1 from information_schema.columns where table_name='propostas_aceite_tentativas' and column_name='email_status');")
+
+if [ "$JA_TEM_3113" = "t" ]; then
+  echo "Banco já tem a Fase 3.11.3 aplicada de uma execução anterior — não fazendo replay de nenhuma migration mais antiga (isso nunca acontece numa instalação real); reaplicando só 20261004090000 para provar sua idempotência real." | tee -a /tmp/fase311_mig.log
+  pass "PASSO-0 migration 20261002090000_phase_3_11_workflow_proposta_parceiro.sql já aplicada anteriormente (marcador da 3.11.3 presente) — não replayed"
+  pass "PASSO-0 migration 20261002100000_phase_3_11_01_fix_token_gen_random_bytes.sql já aplicada anteriormente (marcador da 3.11.3 presente) — não replayed"
+  pass "PASSO-0 migration 20261003100000_phase_3_11_02_aceite_otp_assinatura_granular.sql já aplicada anteriormente (marcador da 3.11.3 presente) — não replayed"
+  if $PSQL -v ON_ERROR_STOP=1 -f "supabase/migrations/20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql" >> /tmp/fase311_mig.log 2>&1; then
+    pass "PASSO-0 migration 20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql reaplica sem erro (idempotente de verdade)"
+  else
+    fail "PASSO-0 aplicar migration 20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql" "ver /tmp/fase311_mig.log"
+    MIG_OK=0
+  fi
+elif [ "$JA_TEM_3112" = "t" ]; then
+  echo "Banco já tem a Fase 3.11.2 aplicada de uma execução anterior (mas ainda não a 3.11.3) — não fazendo replay de 20261002090000/20261002100000; aplicando 20261003100000 (reaplica, prova idempotência) e 20261004090000 (primeira vez)." | tee -a /tmp/fase311_mig.log
   pass "PASSO-0 migration 20261002090000_phase_3_11_workflow_proposta_parceiro.sql já aplicada anteriormente (marcador da 3.11.2 presente) — não replayed"
   pass "PASSO-0 migration 20261002100000_phase_3_11_01_fix_token_gen_random_bytes.sql já aplicada anteriormente (marcador da 3.11.2 presente) — não replayed"
   if $PSQL -v ON_ERROR_STOP=1 -f "supabase/migrations/20261003100000_phase_3_11_02_aceite_otp_assinatura_granular.sql" >> /tmp/fase311_mig.log 2>&1; then
@@ -85,11 +107,20 @@ if [ "$JA_TEM_3112" = "t" ]; then
     fail "PASSO-0 aplicar migration 20261003100000_phase_3_11_02_aceite_otp_assinatura_granular.sql" "ver /tmp/fase311_mig.log"
     MIG_OK=0
   fi
+  if [ "$MIG_OK" = "1" ]; then
+    if $PSQL -v ON_ERROR_STOP=1 -f "supabase/migrations/20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql" >> /tmp/fase311_mig.log 2>&1; then
+      pass "PASSO-0 migration 20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql aplica sem erro (instalação do zero)"
+    else
+      fail "PASSO-0 aplicar migration 20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql" "ver /tmp/fase311_mig.log"
+      MIG_OK=0
+    fi
+  fi
 else
   MIGS=(
     "supabase/migrations/20261002090000_phase_3_11_workflow_proposta_parceiro.sql"
     "supabase/migrations/20261002100000_phase_3_11_01_fix_token_gen_random_bytes.sql"
     "supabase/migrations/20261003100000_phase_3_11_02_aceite_otp_assinatura_granular.sql"
+    "supabase/migrations/20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql"
   )
   for MIG in "${MIGS[@]}"; do
     if $PSQL -v ON_ERROR_STOP=1 -f "$MIG" >> /tmp/fase311_mig.log 2>&1; then
@@ -121,6 +152,19 @@ WEBHOOK_SECRET_ENV_NAME="FASE25_TEST_WEBHOOK_SECRET"
 WEBHOOK_SECRET_VALUE="optimon-fase25-teste-hmac-secret-nao-usar-em-producao"
 if ! grep -q "^${WEBHOOK_SECRET_ENV_NAME}=" api/.env 2>/dev/null; then
   echo "${WEBHOOK_SECRET_ENV_NAME}=${WEBHOOK_SECRET_VALUE}" >> api/.env
+fi
+
+# Fase 3.11.3 — segredo de teste do webhook do Resend (formato Svix: prefixo "whsec_" +
+# base64). Mesmo padrão do FASE25_TEST_WEBHOOK_SECRET acima: só existe neste .env local
+# de desenvolvimento, nunca em produção — RESEND_API_KEY/RESEND_FROM_EMAIL propositalmente
+# NÃO são setadas aqui (esta sessão não tem uma conta Resend real para testar contra ela)
+# — o que prova, de forma real e não presumida, que o fallback DEV_LOG documentado em
+# api/lib/otpNotifier.js funciona exatamente como projetado quando o Resend não está
+# configurado neste ambiente.
+RESEND_WEBHOOK_SECRET_ENV_NAME="RESEND_WEBHOOK_SECRET"
+RESEND_WEBHOOK_SECRET_VALUE="whsec_b3B0aW1vbi1mYXNlMzExMy10ZXN0ZS1zdml4LXNlY3JldA=="
+if ! grep -q "^${RESEND_WEBHOOK_SECRET_ENV_NAME}=" api/.env 2>/dev/null; then
+  echo "${RESEND_WEBHOOK_SECRET_ENV_NAME}=${RESEND_WEBHOOK_SECRET_VALUE}" >> api/.env
 fi
 
 rm -f /tmp/fase311_api.log
@@ -171,7 +215,15 @@ body() { cat /tmp/fase311_resp.json; }
 # canal de teste controlado, nunca contorna a validação real.
 otp_from_log() {
   local tentativa="$1"
-  grep "proposta=${tentativa} " /tmp/fase311_api.log | tail -1 | grep -oE 'codigo=[0-9]{6}' | tail -1 | cut -d= -f2
+  # Fase 3.11.3: o campo antes era "proposta=<tentativa_id>" (bug real documentado —
+  # propostaNumero recebia data?.tentativa_id em vez do número real da proposta); agora o
+  # log tem um campo "tentativa_id=" próprio e "proposta=" passou a ser o NÚMERO real da
+  # proposta (necessário para o template do e-mail, seção 7). A linha
+  # "[DEV-OTP-NAO-E-EMAIL-REAL] ... tentativa_id=X ... codigo=NNNNNN ..." é a única que
+  # tem "codigo=" — a linha de resumo operacional "[otp-email] tentativa_id=X canal=..."
+  # também casa com "tentativa_id=X " (mesmo prefixo), mas nunca tem "codigo=", então o
+  # -E "tentativa_id=X .*codigo=" abaixo já a exclui sem precisar filtrar por linha inteira.
+  grep -E "tentativa_id=${tentativa} .*codigo=[0-9]{6}" /tmp/fase311_api.log | tail -1 | grep -oE 'codigo=[0-9]{6}' | tail -1 | cut -d= -f2
 }
 
 sign_and_post_webhook() {
@@ -180,6 +232,35 @@ sign_and_post_webhook() {
   sig=$(openssl dgst -sha256 -hmac "$WEBHOOK_SECRET_VALUE" "$payload_file" | awk '{print $NF}')
   curl -sS -o /tmp/fase311_webhook_resp.json -w '%{http_code}' -X POST "$API/api/signatures/webhook" \
     -H "Content-Type: application/json" -H "X-Signature: $sig" --data-binary "@$payload_file"
+}
+
+# Fase 3.11.3 (seção 9) — assina e envia um payload de webhook do Resend, no formato
+# Svix real (id.timestamp.corpo, HMAC-SHA256 em base64, chave = bytes decodificados do
+# segredo sem o prefixo "whsec_"). Usado tanto para o teste POSITIVO (assinatura válida)
+# quanto para o NEGATIVO (assinatura adulterada) — a mesma lógica que api/routes/
+# emailWebhooks.js implementa, calculada aqui de forma independente (não importa o
+# módulo do servidor) para o teste ser uma verificação real, não um espelho da mesma
+# implementação.
+sign_and_post_resend_webhook() {
+  local payload_file="$1"
+  local bad_signature="${2:-}"
+  local svix_id="msg_teste_${RANDOM}"
+  local svix_ts
+  svix_ts=$(date +%s)
+  local sig
+  sig=$(node -e "
+    const fs = require('fs'); const crypto = require('crypto');
+    const secret = '$RESEND_WEBHOOK_SECRET_VALUE';
+    const keyBytes = Buffer.from(secret.startsWith('whsec_') ? secret.slice(6) : secret, 'base64');
+    const body = fs.readFileSync('$payload_file', 'utf8');
+    const signedContent = '$svix_id.' + '$svix_ts' + '.' + body;
+    const mac = crypto.createHmac('sha256', keyBytes).update(signedContent).digest('base64');
+    console.log('v1,' + mac);
+  ")
+  if [ -n "$bad_signature" ]; then sig="v1,QWRVTHRlcmFkYS1hc3NpbmF0dXJhLWludmFsaWRh"; fi
+  curl -sS -o /tmp/fase311_resend_webhook_resp.json -w '%{http_code}' -X POST "$API/api/webhooks/resend" \
+    -H "Content-Type: application/json" -H "svix-id: $svix_id" -H "svix-timestamp: $svix_ts" -H "svix-signature: $sig" \
+    --data-binary "@$payload_file"
 }
 
 if [ -z "$CIDADE_ID" ]; then
@@ -861,6 +942,271 @@ if setup_proposta_teste "OTP"; then
 else
   fail "SUB-FLUXO-C setup da proposta de teste (OTP expirado)" "ver mensagens acima"
 fi
+
+echo "############################################################"
+echo "# FASE 3.11.3 — PARCEIRO OBRIGATÓRIO (seções 10-17) #"
+echo "############################################################"
+
+# Parceiro inativo dedicado para os testes negativos abaixo.
+CNPJ_INATIVO="$(printf '%014d' $((RANDOM * RANDOM % 100000000000000)))"
+CODE=$(api POST "/api/partners" "$TOK_COMERCIAL" "{\"razao_social\":\"TESTE-E2E-OPTIMON-3113-INATIVO Ltda\",\"nome_fantasia\":\"TESTE-E2E-OPTIMON-3113-INATIVO\",\"cnpj\":\"$CNPJ_INATIVO\",\"email_contato\":\"teste-e2e-3113-inativo@optimon.local\"}")
+PARCEIRO_INATIVO_ID=$(jget ".id")
+if [ "$CODE" = "201" ] && [ -n "$PARCEIRO_INATIVO_ID" ]; then
+  ALL_PARCEIROS_TESTE+=("$PARCEIRO_INATIVO_ID")
+  CODE=$(api POST "/api/partners/$PARCEIRO_INATIVO_ID/deactivate" "$TOK_ADMIN" '{"motivo":"Parceiro de teste — mantido inativo de propósito para TESTE-74."}')
+  [ "$CODE" = "200" ] && pass "TESTE-72 setup: parceiro TESTE-E2E-OPTIMON-3113-INATIVO criado e desativado — pronto para o TESTE-74" \
+    || fail "TESTE-72 setup: desativar parceiro de teste" "codigo=$CODE body=$(body)"
+else
+  fail "TESTE-72 setup: criar parceiro inativo de teste" "codigo=$CODE body=$(body)"
+fi
+
+# Simulação real reaproveitável para os 3 testes de criação de proposta abaixo — só o
+# parceiro_id muda entre eles (o que está sob teste).
+CODE=$(api POST "/api/pricing/calculate" "$TOK_COMERCIAL" "{\"cidade_id\":\"$CIDADE_ID\",\"clientes\":180,\"arpu\":85,\"revenue_share_pct\":0.12}")
+RESULTADO_3113_JSON=$(body)
+SIM_3113_BODY=$(node -e "
+const r = $RESULTADO_3113_JSON;
+console.log(JSON.stringify({cidade_id: '$CIDADE_ID', modelo: 'HIBRIDO_REVENUE_SHARE', pares_ou_clientes: 180, arpu: 85, revenue_share_pct: 0.12, prazo_meses: 48, resultado: r}));
+")
+CODE=$(api POST "/api/simulations" "$TOK_COMERCIAL" "$SIM_3113_BODY")
+SIM_3113_ID=$(jget ".id")
+[ "$CODE" = "201" ] && [ -n "$SIM_3113_ID" ] && pass "TESTE-73 setup: simulação real para os testes de parceiro obrigatório salva — id=$SIM_3113_ID" \
+  || fail "TESTE-73 setup: salvar simulação para os testes de parceiro obrigatório" "codigo=$CODE body=$(body)"
+
+echo "--- seção 17, item 1: criar proposta SEM parceiro (campo omitido) ---"
+CODE=$(api POST "/api/proposals" "$TOK_COMERCIAL" "{\"simulacao_id\":\"$SIM_3113_ID\",\"cidade_id\":\"$CIDADE_ID\"}")
+[ "$CODE" = "400" ] && [ "$(jget '.code')" = "PARTNER_REQUIRED" ] \
+  && pass "TESTE-74 (negativo, seção 17.1) criar proposta SEM parceiro_id é BLOQUEADO — 400 PARTNER_REQUIRED" \
+  || fail "TESTE-74 (negativo) proposta sem parceiro deveria ser bloqueada com 400 PARTNER_REQUIRED" "codigo=$CODE body=$(body)"
+
+echo "--- seção 17, item 1b: criar proposta com parceiro_id string vazia ---"
+CODE=$(api POST "/api/proposals" "$TOK_COMERCIAL" "{\"simulacao_id\":\"$SIM_3113_ID\",\"cidade_id\":\"$CIDADE_ID\",\"parceiro_id\":\"\"}")
+[ "$CODE" = "400" ] && [ "$(jget '.code')" = "PARTNER_REQUIRED" ] \
+  && pass "TESTE-75 (negativo, seção 17.1) criar proposta com parceiro_id vazio é BLOQUEADO — 400 PARTNER_REQUIRED" \
+  || fail "TESTE-75 (negativo) proposta com parceiro_id vazio deveria ser bloqueada" "codigo=$CODE body=$(body)"
+
+echo "--- seção 17, item 2: criar proposta com parceiro_id INEXISTENTE ---"
+CODE=$(api POST "/api/proposals" "$TOK_COMERCIAL" "{\"simulacao_id\":\"$SIM_3113_ID\",\"cidade_id\":\"$CIDADE_ID\",\"parceiro_id\":\"00000000-0000-0000-0000-000000000000\"}")
+[ "$CODE" = "404" ] && [ "$(jget '.code')" = "PARTNER_NOT_FOUND" ] \
+  && pass "TESTE-76 (negativo, seção 17.2) criar proposta com parceiro_id inexistente é BLOQUEADO — 404 PARTNER_NOT_FOUND" \
+  || fail "TESTE-76 (negativo) proposta com parceiro inexistente deveria ser bloqueada com 404 PARTNER_NOT_FOUND" "codigo=$CODE body=$(body)"
+
+echo "--- seção 17, item 3: criar proposta com parceiro INATIVO ---"
+CODE=$(api POST "/api/proposals" "$TOK_COMERCIAL" "{\"simulacao_id\":\"$SIM_3113_ID\",\"cidade_id\":\"$CIDADE_ID\",\"parceiro_id\":\"$PARCEIRO_INATIVO_ID\"}")
+[ "$CODE" = "400" ] && [ "$(jget '.code')" = "PARTNER_INACTIVE" ] \
+  && pass "TESTE-77 (negativo, seção 17.3) criar proposta com parceiro INATIVO é BLOQUEADO — 400 PARTNER_INACTIVE" \
+  || fail "TESTE-77 (negativo) proposta com parceiro inativo deveria ser bloqueada com 400 PARTNER_INACTIVE" "codigo=$CODE body=$(body)"
+
+echo "--- seção 17, item 4: mesmo bloqueio direto no BANCO (bypass total do Node — prova que o backend não é o único a bloquear) ---"
+PARTNER_REQUIRED_NO_NODE=$($PSQL -t -A -c "set role authenticated; set local \"request.jwt.claims\" = '{\"sub\":\"$UID_COMERCIAL\",\"role\":\"authenticated\"}'; select pricing_proposal_create('$SIM_3113_ID', '$CIDADE_ID', null, null, null, null, null, null, null, 15);" 2>&1)
+echo "$PARTNER_REQUIRED_NO_NODE" | grep -q "PARTNER_REQUIRED" \
+  && pass "TESTE-78 (negativo, seção 17.4, direto no Postgres) pricing_proposal_create chamada sem Node/API nenhum também bloqueia — PARTNER_REQUIRED" \
+  || fail "TESTE-78 (negativo) função do banco deveria bloquear mesmo sem passar pela API" "$PARTNER_REQUIRED_NO_NODE"
+
+echo "--- seção 17, item 5: gerar proposta a partir de simulação SEM parceiro (mesmo endpoint — nesta arquitetura toda proposta NASCE de uma simulação, não existe uma tela de 'conversão' separada) ---"
+CODE=$(api POST "/api/proposals" "$TOK_COMERCIAL" "{\"simulacao_id\":\"$SIM_3113_ID\"}")
+[ "$CODE" = "400" ] && [ "$(jget '.code')" = "PARTNER_REQUIRED" ] \
+  && pass "TESTE-79 (negativo, seção 17.5/seção 15) gerar proposta a partir de simulação sem selecionar parceiro é BLOQUEADO" \
+  || fail "TESTE-79 (negativo) simulação->proposta sem parceiro deveria ser bloqueada" "codigo=$CODE body=$(body)"
+
+echo "--- prova positiva: a MESMA simulação, agora com parceiro válido e ativo, funciona normalmente ---"
+CODE=$(api POST "/api/proposals" "$TOK_COMERCIAL" "{\"simulacao_id\":\"$SIM_3113_ID\",\"cidade_id\":\"$CIDADE_ID\",\"parceiro_id\":\"$PARCEIRO_ID\"}")
+PROP_3113_ID=$(jget ".id")
+[ "$CODE" = "201" ] && [ -n "$PROP_3113_ID" ] \
+  && pass "TESTE-80 criar proposta COM parceiro válido/ativo funciona normalmente — 201, id=$PROP_3113_ID" \
+  || fail "TESTE-80 criar proposta com parceiro válido deveria funcionar" "codigo=$CODE body=$(body)"
+
+echo "--- seção 17, item 6: alterar parceiro de proposta já ACEITA_PELO_PARCEIRO (via banco — nenhuma rota da API permite isso; trigger é a rede de segurança) ---"
+if [ -n "${PROP_OTP:-}" ]; then
+  TROCA_ACEITA=$($PSQL -t -A -c "set role authenticated; set local \"request.jwt.claims\" = '{\"sub\":\"$UID_DIRETOR\",\"role\":\"authenticated\"}'; update propostas_comerciais set parceiro_id='$PARCEIRO_ID' where id='$PROP_OTP';" 2>&1)
+  echo "$TROCA_ACEITA" | grep -q "PARTNER_LOCKED" \
+    && pass "TESTE-81 (negativo, seção 17.6) alterar parceiro de proposta ACEITA_PELO_PARCEIRO é BLOQUEADO — PARTNER_LOCKED" \
+    || fail "TESTE-81 (negativo) troca de parceiro pós-aceite deveria ser bloqueada" "$TROCA_ACEITA"
+else
+  fail "TESTE-81 (negativo) troca de parceiro pós-aceite" "PROP_OTP não disponível (sub-fluxo C não rodou) — teste não executado"
+fi
+
+echo "--- seção 17, item 7: alterar parceiro de proposta com CONTRATO_GERADO (usa o contrato real gerado na Etapa 10) ---"
+if [ -n "${PROP_ID:-}" ] && [ -n "${CONTRATO_ID:-}" ]; then
+  STATUS_PROP_ID_ATUAL=$(scalar "select status from propostas_comerciais where id='$PROP_ID';")
+  # Usa um parceiro DIFERENTE do já vinculado (PARCEIRO_INATIVO_ID, só como valor de FK —
+  # o teste é sobre o UPDATE ser bloqueado, nunca chega a validar ativo/inativo) — usar o
+  # mesmo PARCEIRO_ID que a proposta já tem seria um UPDATE sem mudança real
+  # (NEW.parceiro_id IS DISTINCT FROM OLD.parceiro_id = false), o que passaria por um
+  # "bloqueio" falso-positivo sem testar nada de verdade.
+  TROCA_CONTRATO=$($PSQL -t -A -c "set role authenticated; set local \"request.jwt.claims\" = '{\"sub\":\"$UID_DIRETOR\",\"role\":\"authenticated\"}'; update propostas_comerciais set parceiro_id='$PARCEIRO_INATIVO_ID' where id='$PROP_ID';" 2>&1)
+  if [ "$STATUS_PROP_ID_ATUAL" = "CONTRATO_GERADO" ]; then
+    echo "$TROCA_CONTRATO" | grep -q "PARTNER_LOCKED" \
+      && pass "TESTE-82 (negativo, seção 17.7) alterar parceiro de proposta com CONTRATO_GERADO é BLOQUEADO — PARTNER_LOCKED (status confirmado=$STATUS_PROP_ID_ATUAL)" \
+      || fail "TESTE-82 (negativo) troca de parceiro pós-contrato deveria ser bloqueada" "status=$STATUS_PROP_ID_ATUAL resultado=$TROCA_CONTRATO"
+  else
+    # Mesmo fora de CONTRATO_GERADO, qualquer status != RASCUNHO já bloqueia (trigger é
+    # mais amplo que os 3 estados citados na seção 16) — ainda uma prova válida.
+    echo "$TROCA_CONTRATO" | grep -q "PARTNER_LOCKED" \
+      && pass "TESTE-82 (negativo, seção 17.7) alterar parceiro de proposta pós-contrato é BLOQUEADO — PARTNER_LOCKED (status real=$STATUS_PROP_ID_ATUAL, já fora de RASCUNHO)" \
+      || fail "TESTE-82 (negativo) troca de parceiro pós-contrato deveria ser bloqueada" "status=$STATUS_PROP_ID_ATUAL resultado=$TROCA_CONTRATO"
+  fi
+else
+  fail "TESTE-82 (negativo) troca de parceiro pós-contrato" "PROP_ID/CONTRATO_ID não disponíveis — teste não executado"
+fi
+
+echo "--- seção 14: duplicar/nova versão de uma proposta HISTÓRICA sem parceiro (as 3 linhas reais documentadas no relatório — nunca apagadas) também são bloqueadas ---"
+PROP_HISTORICA_SEM_PARCEIRO=$(scalar "select id from propostas_comerciais where parceiro_id is null order by criado_em limit 1;")
+if [ -n "$PROP_HISTORICA_SEM_PARCEIRO" ]; then
+  CODE=$(api POST "/api/proposals/$PROP_HISTORICA_SEM_PARCEIRO/duplicate" "$TOK_COMERCIAL" '{"motivo":"teste 3.11.3"}')
+  [ "$CODE" != "201" ] && [ "$(jget '.code')" = "PARTNER_REQUIRED" ] \
+    && pass "TESTE-83 (negativo, seção 14) duplicar proposta histórica sem parceiro é BLOQUEADO — PARTNER_REQUIRED (proposta=$PROP_HISTORICA_SEM_PARCEIRO)" \
+    || fail "TESTE-83 (negativo) duplicar proposta histórica sem parceiro deveria ser bloqueado" "codigo=$CODE body=$(body)"
+
+  CODE=$(api POST "/api/proposals/$PROP_HISTORICA_SEM_PARCEIRO/version" "$TOK_COMERCIAL" '{"motivo":"teste 3.11.3"}')
+  [ "$CODE" != "201" ] && [ "$(jget '.code')" = "PARTNER_REQUIRED" ] \
+    && pass "TESTE-84 (negativo, seção 14) criar nova versão de proposta histórica sem parceiro é BLOQUEADO — PARTNER_REQUIRED" \
+    || fail "TESTE-84 (negativo) nova versão de proposta histórica sem parceiro deveria ser bloqueada" "codigo=$CODE body=$(body)"
+else
+  echo "  (nenhuma proposta histórica sem parceiro encontrada neste banco — TESTE-83/84 pulados; ver relatório final para o levantamento real feito no banco de desenvolvimento desta fase)"
+fi
+
+echo "--- levantamento real (seção 13) — nunca alterado automaticamente ---"
+HIST_SEM_PARCEIRO_COUNT=$(scalar "select count(*) from propostas_comerciais where parceiro_id is null;")
+pass "TESTE-85 levantamento seção 13 executado: $HIST_SEM_PARCEIRO_COUNT proposta(s) histórica(s) sem parceiro — preservada(s), não alterada(s) (ver relatório final para os IDs/datas/status)"
+
+echo "############################################################"
+echo "# FASE 3.11.3 — RESEND REAL (seções 3-9) #"
+echo "############################################################"
+
+echo "--- api/lib/emailService.js: buildEmailProvider() honesto sobre a AUSÊNCIA de configuração (nunca finge) ---"
+RESEND_UNIT_1=$(cd api && RESEND_API_KEY= RESEND_FROM_EMAIL= node -e "
+const { buildEmailProvider } = require('./lib/emailService');
+console.log(buildEmailProvider() === null ? 'NULL_OK' : 'DEVERIA_SER_NULL');
+")
+[ "$RESEND_UNIT_1" = "NULL_OK" ] \
+  && pass "TESTE-86 buildEmailProvider() devolve null quando RESEND_API_KEY/RESEND_FROM_EMAIL ausentes (nunca inventa/finge configuração)" \
+  || fail "TESTE-86 buildEmailProvider() deveria devolver null sem configuração" "$RESEND_UNIT_1"
+
+echo "--- api/lib/emailService.js: client REAL montado corretamente quando as variáveis existem, e a API key NUNCA aparece no objeto serializado nem em erro nenhum ---"
+RESEND_UNIT_2=$(cd api && RESEND_API_KEY=re_teste_fake_key_nao_e_real_12345 RESEND_FROM_EMAIL="OptiMon <noreply@teste.optimon.local>" node -e "
+const { buildEmailProvider, ResendEmailProvider } = require('./lib/emailService');
+const p = buildEmailProvider();
+const isInstance = p instanceof ResendEmailProvider;
+const serialized = JSON.stringify(p);
+const leaked = serialized.includes('re_teste_fake_key_nao_e_real_12345');
+console.log(isInstance && !leaked ? 'OK' : 'FALHOU: instance=' + isInstance + ' leaked=' + leaked);
+")
+[ "$RESEND_UNIT_2" = "OK" ] \
+  && pass "TESTE-87 buildEmailProvider() monta ResendEmailProvider quando configurado, e a API key nunca vaza em JSON.stringify do objeto" \
+  || fail "TESTE-87 client Resend deveria montar corretamente sem vazar a chave" "$RESEND_UNIT_2"
+
+echo "--- api/lib/emailService.js: send() trata rede/HTTP corretamente (fetch mockado — sem tocar a rede real, sem gastar cota do Resend) ---"
+RESEND_UNIT_3=$(cd api && RESEND_API_KEY=re_teste_fake RESEND_FROM_EMAIL="OptiMon <noreply@teste.optimon.local>" node -e "
+const { buildEmailProvider } = require('./lib/emailService');
+(async () => {
+  const results = [];
+  const provider = buildEmailProvider();
+
+  // 1) sucesso: Resend responde 200 com id.
+  global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ id: 'email-fake-123' }) });
+  const ok = await provider.send({ to: 'parceiro@teste.local', subject: 'Assunto', html: '<p>x</p>', text: 'x' });
+  results.push(ok.emailId === 'email-fake-123' ? 'SEND_OK' : 'SEND_OK_FALHOU:' + JSON.stringify(ok));
+
+  // 2) Resend rejeita (4xx) — erro sanitizado, sem vazar a api key.
+  global.fetch = async () => ({ ok: false, status: 422, json: async () => ({ message: 'invalid from address' }) });
+  try {
+    await provider.send({ to: 'parceiro@teste.local', subject: 'Assunto', html: '<p>x</p>', text: 'x' });
+    results.push('REJEICAO_DEVERIA_LANCAR_ERRO');
+  } catch (e) {
+    const leaked = String(e.message).includes('re_teste_fake');
+    results.push(!leaked && /RESEND_REJEITOU_ENVIO/.test(e.message) ? 'REJEICAO_OK' : 'REJEICAO_FALHOU:' + e.message);
+  }
+
+  // 3) falha de rede — erro sanitizado.
+  global.fetch = async () => { throw new Error('ECONNREFUSED (simulado)'); };
+  try {
+    await provider.send({ to: 'parceiro@teste.local', subject: 'Assunto', html: '<p>x</p>', text: 'x' });
+    results.push('REDE_DEVERIA_LANCAR_ERRO');
+  } catch (e) {
+    const leaked = String(e.message).includes('re_teste_fake');
+    results.push(!leaked && /RESEND_INDISPONIVEL/.test(e.message) ? 'REDE_OK' : 'REDE_FALHOU:' + e.message);
+  }
+
+  console.log(results.join('|'));
+})();
+")
+echo "$RESEND_UNIT_3" | grep -q "SEND_OK|REJEICAO_OK|REDE_OK" \
+  && pass "TESTE-88 ResendEmailProvider.send(): sucesso/rejeição do provedor/falha de rede tratados corretamente, sem vazar a API key em nenhum caso — $RESEND_UNIT_3" \
+  || fail "TESTE-88 ResendEmailProvider.send() deveria tratar os 3 cenários corretamente" "$RESEND_UNIT_3"
+
+echo "--- api/lib/otpNotifier.js: fallback DEV_LOG nunca roda em produção (falha alto e claro, nunca finge sucesso) ---"
+RESEND_UNIT_4=$(cd api && RESEND_API_KEY= RESEND_FROM_EMAIL= APP_ENVIRONMENT=production node -e "
+const { buildOtpNotifier } = require('./lib/otpNotifier');
+(async () => {
+  try {
+    await buildOtpNotifier().sendOtp({ email: 'x@x.com', nome: 'X', numero: 'PROP-1', proponente: 'Y', otp: '123456', expiraEm: new Date().toISOString(), tentativaId: 'fake' });
+    console.log('DEVERIA_TER_LANCADO_ERRO');
+  } catch (e) {
+    console.log(/RESEND_NAO_CONFIGURADO/.test(e.message) ? 'BLOQUEADO_OK' : 'ERRO_INESPERADO:' + e.message);
+  }
+})();
+")
+[ "$RESEND_UNIT_4" = "BLOQUEADO_OK" ] \
+  && pass "TESTE-89 fallback DEV_LOG do otpNotifier RECUSA operar quando APP_ENVIRONMENT=production sem RESEND_API_KEY (nunca finge sucesso em produção — seção 6)" \
+  || fail "TESTE-89 fallback DEV_LOG deveria recusar operar em produção" "$RESEND_UNIT_4"
+
+echo "--- prova end-to-end (REAL, executada acima nas ETAPAS 8-9): neste ambiente de desenvolvimento, sem RESEND_API_KEY configurada, o fluxo de OTP usa o fallback DEV_LOG e grava o email_status corretamente ---"
+if [ -n "${TENTATIVA_ID:-}" ]; then
+  EMAIL_STATUS_REAL=$(scalar "select email_status from propostas_aceite_tentativas where id='$TENTATIVA_ID';")
+  EMAIL_CANAL_REAL=$(scalar "select email_canal from propostas_aceite_tentativas where id='$TENTATIVA_ID';")
+  [ "$EMAIL_CANAL_REAL" = "DEV_LOG" ] && [ -n "$EMAIL_STATUS_REAL" ] && [ "$EMAIL_STATUS_REAL" != "OTP_GERADO" ] \
+    && pass "TESTE-90 tentativa real do fluxo principal tem email_status=$EMAIL_STATUS_REAL / email_canal=$EMAIL_CANAL_REAL gravado corretamente (neste ambiente sem RESEND_API_KEY — ver RELATÓRIO FINAL seção RESEND)" \
+    || fail "TESTE-90 email_status/email_canal deveriam estar preenchidos após /accept/iniciar" "email_status=$EMAIL_STATUS_REAL email_canal=$EMAIL_CANAL_REAL"
+else
+  fail "TESTE-90 email_status da tentativa do fluxo principal" "TENTATIVA_ID não disponível"
+fi
+
+echo "--- api/routes/emailWebhooks.js: assinatura Svix VÁLIDA é aceita (evento sem tentativa correspondente = ignorado, mas a ASSINATURA em si passa) ---"
+echo '{"type":"email.delivered","data":{"email_id":"email-inexistente-teste-3113"}}' > /tmp/fase311_resend_webhook_payload.json
+CODE=$(sign_and_post_resend_webhook /tmp/fase311_resend_webhook_payload.json)
+[ "$CODE" = "200" ] \
+  && pass "TESTE-91 webhook do Resend com assinatura Svix VÁLIDA é aceito (200) — evento sem tentativa correspondente é ignorado sem erro" \
+  || fail "TESTE-91 webhook com assinatura válida deveria ser aceito" "codigo=$CODE body=$(cat /tmp/fase311_resend_webhook_resp.json 2>/dev/null)"
+
+echo "--- api/routes/emailWebhooks.js: assinatura Svix INVÁLIDA/adulterada é REJEITADA (401) — nunca processa sem validar (seção 21) ---"
+CODE=$(sign_and_post_resend_webhook /tmp/fase311_resend_webhook_payload.json "adulterada")
+[ "$CODE" = "401" ] \
+  && pass "TESTE-92 (negativo) webhook do Resend com assinatura ADULTERADA é BLOQUEADO — 401, nunca processa o evento" \
+  || fail "TESTE-92 (negativo) webhook com assinatura inválida deveria ser bloqueado com 401" "codigo=$CODE body=$(cat /tmp/fase311_resend_webhook_resp.json 2>/dev/null)"
+
+echo "--- api/routes/emailWebhooks.js: evento REAL casando com uma tentativa real (a do fluxo principal) atualiza email_status corretamente ---"
+if [ -n "${TENTATIVA_ID:-}" ]; then
+  EMAIL_PROVIDER_ID_REAL=$(scalar "select email_provider_id from propostas_aceite_tentativas where id='$TENTATIVA_ID';")
+  if [ -n "$EMAIL_PROVIDER_ID_REAL" ] && [ "$EMAIL_PROVIDER_ID_REAL" != "" ]; then
+    node -e "console.log(JSON.stringify({type:'email.delivered', data:{email_id: '$EMAIL_PROVIDER_ID_REAL'}}))" > /tmp/fase311_resend_webhook_payload2.json
+    CODE=$(sign_and_post_resend_webhook /tmp/fase311_resend_webhook_payload2.json)
+    EMAIL_STATUS_POS_WEBHOOK=$(scalar "select email_status from propostas_aceite_tentativas where id='$TENTATIVA_ID';")
+    [ "$CODE" = "200" ] && [ "$EMAIL_STATUS_POS_WEBHOOK" = "EMAIL_ENTREGUE" ] \
+      && pass "TESTE-93 evento real 'email.delivered' do webhook do Resend atualiza email_status para EMAIL_ENTREGUE (tentativa_id=$TENTATIVA_ID)" \
+      || fail "TESTE-93 webhook deveria atualizar email_status para EMAIL_ENTREGUE" "codigo=$CODE email_status=$EMAIL_STATUS_POS_WEBHOOK"
+  else
+    echo "  (email_provider_id vazio neste ambiente — canal DEV_LOG não gera email_id real do Resend; TESTE-93 pulado, comportamento esperado sem RESEND_API_KEY configurada)"
+  fi
+else
+  fail "TESTE-93 evento real do webhook" "TENTATIVA_ID não disponível"
+fi
+
+echo "--- api/routes/emailWebhooks.js: sem RESEND_WEBHOOK_SECRET configurada, o endpoint recusa processar (nunca aceita sem conseguir validar) — testado num processo Express isolado, à parte, para nunca precisar derrubar a API principal em uso pelo resto da suíte ---"
+rm -f /tmp/fase311_webhook_only.log
+( cd api && nohup env -u RESEND_WEBHOOK_SECRET PORT=3099 node -e "
+const express = require('express');
+const { router } = require('./routes/emailWebhooks');
+const app = express();
+app.use('/api/webhooks', router);
+app.listen(3099, () => console.log('webhook-only ouvindo na porta 3099'));
+" > /tmp/fase311_webhook_only.log 2>&1 & disown )
+sleep 1
+CODE_SEM_SECRET=$(curl -sS -o /tmp/fase311_webhook_only_resp.json -w '%{http_code}' -X POST "http://localhost:3099/api/webhooks/resend" -H "Content-Type: application/json" --data-binary '{"type":"email.delivered","data":{"email_id":"x"}}')
+[ "$CODE_SEM_SECRET" = "500" ] \
+  && pass "TESTE-94 (negativo) sem RESEND_WEBHOOK_SECRET configurada, o webhook recusa processar — 500 controlado, nunca aceita sem conseguir validar a assinatura" \
+  || fail "TESTE-94 (negativo) webhook sem segredo configurado deveria recusar com 500" "codigo=$CODE_SEM_SECRET body=$(cat /tmp/fase311_webhook_only_resp.json 2>/dev/null)"
+kill_matching "webhook-only ouvindo"
 
 echo "############################################################"
 echo "# LIMPEZA CONTROLADA — desativa todos os parceiros de teste criados nesta suíte #"

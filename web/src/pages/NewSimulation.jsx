@@ -125,6 +125,14 @@ export default function NewSimulation() {
 
   async function handleGerarProposta() {
     if (!pricing) return;
+    // Fase 3.11.3 (seções 10-11): "Parceiro/Proponente" passa a ser obrigatório — o
+    // frontend bloqueia ANTES de chamar a API (UX imediata), mas o backend (POST
+    // /api/proposals) e o banco (pricing_proposal_create + constraint) bloqueiam de novo,
+    // de forma independente — nunca confiar só nesta checagem (seção 12/25).
+    if (!parceiroId) {
+      setError('Selecione o parceiro/proponente antes de criar a proposta.');
+      return;
+    }
     setProposalStatus('salvando');
     setError(null);
     try {
@@ -266,18 +274,30 @@ export default function NewSimulation() {
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="section-title">Parceiro (capa da proposta)</h2>
         <div className="form-grid">
-          <Field label="Parceiro cadastrado (opcional)">
-            <select value={parceiroId} onChange={(e) => {
-              const id = e.target.value;
-              setParceiroId(id);
-              const p = partners.find((x) => x.id === id);
-              if (p) setParceiroNomeCapa(p.nome_fantasia || p.razao_social);
-            }}>
-              <option value="">Nenhum — usar nome livre abaixo</option>
+          <Field label={<>Parceiro / Proponente <span style={{ color: '#c0392b' }}>*</span></>}>
+            <select
+              value={parceiroId}
+              required
+              aria-required="true"
+              style={!parceiroId ? { borderColor: '#c0392b' } : undefined}
+              onChange={(e) => {
+                const id = e.target.value;
+                setParceiroId(id);
+                const p = partners.find((x) => x.id === id);
+                if (p) setParceiroNomeCapa(p.nome_fantasia || p.razao_social);
+                if (id) setError(null);
+              }}
+            >
+              <option value="">Selecione o parceiro/proponente…</option>
               {partners.map((p) => (
                 <option key={p.id} value={p.id}>{p.nome_fantasia || p.razao_social}</option>
               ))}
             </select>
+            {!parceiroId && (
+              <small style={{ color: '#c0392b', display: 'block', marginTop: 4 }}>
+                Selecione o parceiro/proponente antes de criar a proposta.
+              </small>
+            )}
           </Field>
           <Field label="Nome do parceiro na capa">
             <input value={parceiroNomeCapa} onChange={(e) => setParceiroNomeCapa(e.target.value)} placeholder="Nome exibido na proposta" />
@@ -403,7 +423,12 @@ export default function NewSimulation() {
             <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: 16 }}>
               Gera e salva a proposta com a régua, PONs, capacidade, Revenue Share, prazo, carência e reajuste desta simulação.
             </p>
-            <button className="btn btn-primary" onClick={handleGerarProposta} disabled={proposalStatus === 'salvando'}>
+            <button
+              className="btn btn-primary"
+              onClick={handleGerarProposta}
+              disabled={proposalStatus === 'salvando' || !parceiroId}
+              title={!parceiroId ? 'Selecione o parceiro/proponente antes de criar a proposta.' : undefined}
+            >
               {proposalStatus === 'salvando' ? 'Gerando…' : 'Gerar Proposta'}
             </button>
             {proposalStatus && proposalStatus !== 'salvando' && (

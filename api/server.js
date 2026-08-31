@@ -27,6 +27,7 @@ const { router: signaturesRoutes, webhookRouter: signaturesWebhookRoutes } = req
 const contractsRoutes = require('./routes/contracts');
 const reportsRoutes = require('./routes/reports');
 const assetsRoutes = require('./routes/assets');
+const { router: emailWebhooksRoutes } = require('./routes/emailWebhooks');
 const { getVersionInfo } = require('./lib/version');
 
 const app = express();
@@ -48,6 +49,11 @@ app.set('trust proxy', true);
 // o express.json() já teria consumido o stream da requisição e o
 // express.raw() interno da rota chegaria com um buffer vazio.
 app.use('/api/signatures', signaturesWebhookRoutes);
+
+// Fase 3.11.3 (seção 9): webhook do Resend — mesmo motivo/mesmo padrão do de assinatura
+// acima (precisa do corpo BRUTO para validar a assinatura Svix, e nunca passa por
+// requireAuth — quem chama é o Resend, sem JWT de usuário).
+app.use('/api/webhooks', emailWebhooksRoutes);
 
 app.use(express.json());
 

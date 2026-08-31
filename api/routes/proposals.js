@@ -11,8 +11,24 @@ const { generateProposalDocx } = require('../lib/docxProposal');
 
 const router = express.Router();
 
+// Fase 3.11.3 (seção 12): PARTNER_REQUIRED/PARTNER_NOT_FOUND/PARTNER_INACTIVE são
+// códigos previsíveis levantados por pricing_proposal_create/duplicar_proposta/
+// criar_versao_proposta (ver migration 20261004090000) — mapeados para os status/código
+// exatos pedidos, sempre com um campo `code` explícito na resposta (não só a mensagem em
+// texto), para o frontend nunca precisar fazer parsing de string de erro.
+const PARTNER_ERROR_CODES = {
+  PARTNER_REQUIRED: 400,
+  PARTNER_NOT_FOUND: 404,
+  PARTNER_INACTIVE: 400,
+  PARTNER_LOCKED: 409,
+};
+
 function handleError(res, error) {
   const message = error?.message || 'Erro inesperado.';
+  const codeMatch = message.match(/^([A-Z_]+):\s*(.*)$/s);
+  if (codeMatch && PARTNER_ERROR_CODES[codeMatch[1]] != null) {
+    return res.status(PARTNER_ERROR_CODES[codeMatch[1]]).json({ error: codeMatch[2] || message, code: codeMatch[1] });
+  }
   let status;
   if (/PERMISSAO_NEGADA/i.test(message) || /row-level security/i.test(message)) {
     status = 403;
@@ -52,6 +68,14 @@ router.post('/', async (req, res) => {
   } = req.body || {};
   if (!simulacao_id) {
     return res.status(400).json({ error: 'simulacao_id é obrigatório — gere/salve a simulação primeiro (POST /api/simulations).' });
+  }
+  // Fase 3.11.3 (seção 12): "não confiar somente na interface" — o backend bloqueia
+  // ANTES de chamar o banco (mais barato, mesma resposta de erro), e o banco (função +
+  // constraint NOT VALID, seção 13) bloqueia de novo, de forma independente, para
+  // qualquer outro caminho que não passe por esta rota (seção 14).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!parceiro_id || typeof parceiro_id !== 'string' || !UUID_RE.test(parceiro_id)) {
+    return res.status(400).json({ error: 'A proposta deve estar vinculada a um parceiro/proponente.', code: 'PARTNER_REQUIRED' });
   }
 
   const supabase = clientForRequest(req.userJwt);

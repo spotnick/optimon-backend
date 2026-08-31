@@ -90,15 +90,24 @@ router.get('/:token', async (req, res) => {
 });
 
 // POST /api/proposals/external/:token/accept/iniciar — passo 1 do aceite (Fase 3.11.2,
-// seção 1, itens 1-9): valida dados/declaração/checkbox, gera o OTP (em Node — o
-// Postgres nunca vê o valor em texto puro), "envia" via otpNotifier, e devolve só
-// {tentativa_id, expira_em, email_mascarado} — NUNCA o código.
+// seção 1, itens 1-9; e-mail REAL via Resend a partir da Fase 3.11.3): valida dados/
+// declaração/checkbox, gera o OTP (em Node — o Postgres nunca vê o valor em texto
+// puro), envia via otpNotifier (Resend real, ou fallback DEV_LOG fora de produção — ver
+// api/lib/otpNotifier.js), e devolve só {tentativa_id, expira_em, email_mascarado,
+// email_enviado} — NUNCA o código.
+//
+// Fase 3.11.3 (seção 8): "OTP criado" != "e-mail enviado" != "e-mail entregue" — por
+// isso o Node grava, no PRÓPRIO banco (propostas_aceite_tentativas.email_status), cada
+// transição real que observa: EMAIL_SOLICITADO logo antes de chamar o provedor,
+// EMAIL_ACEITO_PELO_RESEND só depois que o Resend devolve 200 + email_id, e EMAIL_FALHOU
+// se a chamada falhar — nunca assume sucesso silenciosamente.
 router.post('/:token/accept/iniciar', async (req, res) => {
   const { nome, documento, cargo, email, telefone, declaracao, confirmacao } = req.body || {};
   const supabase = anonClient();
 
   const otp = generateOtp();
   const otpHash = hashOtp(otp);
+  const OTP_TTL_MINUTOS = 10;
 
   const { data, error } = await supabase.rpc('pricing_proposal_external_accept_iniciar', {
     p_token: req.params.token,
@@ -110,20 +119,58 @@ router.post('/:token/accept/iniciar', async (req, res) => {
     p_declaracao: declaracao === true,
     p_confirmacao: confirmacao === true,
     p_otp_hash: otpHash,
-    p_otp_ttl_minutos: 10,
+    p_otp_ttl_minutos: OTP_TTL_MINUTOS,
     p_ip: clientIp(req),
     p_user_agent: req.headers['user-agent'] || null,
   });
   if (error) return handleError(res, error);
 
+  const tentativaId = data.tentativa_id;
+  const ip = clientIp(req);
+
   // Só "envia" depois que a tentativa foi validada e persistida — nunca gera um OTP que
   // não tenha hash gravado no banco correspondente.
-  await otpNotifier.sendOtp({ email, nome, propostaNumero: data?.tentativa_id, otp, expiraEm: data?.expira_em });
+  await supabase.rpc('pricing_proposal_accept_email_status', {
+    p_tentativa_id: tentativaId, p_email_status: 'EMAIL_SOLICITADO', p_ip: ip,
+  });
+
+  let envio;
+  try {
+    envio = await otpNotifier.sendOtp({
+      email, nome, numero: data?.numero, proponente: data?.parceiro_nome, otp,
+      expiraEm: data?.expira_em, expiraMinutos: OTP_TTL_MINUTOS, tentativaId,
+    });
+  } catch (sendErr) {
+    // Nunca vaza detalhe sensível (chave/stack) no log nem na resposta — só a causa
+    // sanitizada já lançada por api/lib/emailService.js.
+    const detalhe = sendErr?.message || 'Falha desconhecida ao enviar e-mail.';
+    console.error(`[otp-email] falha ao enviar OTP para tentativa_id=${tentativaId} (destinatário mascarado=${maskEmail(email)}):`, detalhe);
+    await supabase.rpc('pricing_proposal_accept_email_status', {
+      p_tentativa_id: tentativaId, p_email_status: 'EMAIL_FALHOU', p_detalhe: detalhe, p_ip: ip,
+    });
+    return res.status(502).json({
+      error: 'EMAIL_ENVIO_FALHOU: não foi possível enviar o e-mail com o código de confirmação — tente novamente em instantes.',
+      tentativa_id: tentativaId,
+    });
+  }
+
+  await supabase.rpc('pricing_proposal_accept_email_status', {
+    p_tentativa_id: tentativaId,
+    p_email_status: envio.canal === 'RESEND' ? 'EMAIL_ACEITO_PELO_RESEND' : 'EMAIL_SOLICITADO',
+    p_email_provider_id: envio.emailId || null,
+    p_email_canal: envio.canal,
+    p_ip: ip,
+  });
+
+  // Log de auditoria operacional (nunca conteúdo sensível — seção 5/21): só email_id,
+  // destinatário mascarado, timestamp (implícito no log) e status.
+  console.log(`[otp-email] tentativa_id=${tentativaId} canal=${envio.canal} email_id=${envio.emailId || '(n/a)'} destinatario=${maskEmail(email)} status=${envio.canal === 'RESEND' ? 'EMAIL_ACEITO_PELO_RESEND' : 'DEV_LOG'}`);
 
   return res.status(201).json({
-    tentativa_id: data.tentativa_id,
+    tentativa_id: tentativaId,
     expira_em: data.expira_em,
     email_mascarado: maskEmail(email),
+    email_enviado: envio.canal === 'RESEND',
   });
 });
 
