@@ -77,20 +77,37 @@ function sectionHeading(doc, n, titulo) {
   doc.moveDown(0.6);
 }
 
+// Fase 3.9 (seção 3 do modelo de cessão): a nova tabela "Detalhamento da Infraestrutura
+// Cedida" tem 11 colunas (cidade/POP/rota/cabo/capacidade do cabo/recurso cedido/
+// identificação/comprimento/postes/capacidade máxima/data início — exigidas
+// explicitamente pelo prompt) — muito mais que as tabelas anteriores (aditivos,
+// reajustes: 3-5 colunas). Com fonte/altura de linha fixas, 11 colunas ficariam
+// ilegíveis (colunas de ~40pt de largura, texto cortado/sobreposto). Corrigido para: (a)
+// reduzir a fonte quando há muitas colunas; (b) calcular a altura de cada linha a partir
+// do texto que efetivamente mais quebra (doc.heightOfString), em vez de uma altura fixa —
+// nunca sobrepondo texto entre linhas. Verificado visualmente (não só por não lançar
+// erro) renderizando um PDF real e inspecionando o PNG resultante.
 function drawTableRows(doc, rows) {
   const F = doc._brandFonts;
-  const rowH = 20;
-  const colW = (doc.page.width - 2 * PAGE_MARGIN) / rows[0].length;
-  ensureSpace(doc, rows.length * rowH + 10);
+  const numCols = rows[0].length;
+  const fontSize = numCols >= 9 ? 6.5 : numCols >= 7 ? 7.5 : 9;
+  const colW = (doc.page.width - 2 * PAGE_MARGIN) / numCols;
+  const cellPad = 4;
+  doc.font(F.mono).fontSize(fontSize);
+  const rowHeights = rows.map((cols) => Math.max(
+    ...cols.map((val) => doc.heightOfString(String(val ?? '—'), { width: colW - 2 * cellPad }))
+  ) + 2 * cellPad);
+  ensureSpace(doc, Math.min(rowHeights.reduce((a, b) => a + b, 0), 200));
   let y = doc.y;
   rows.forEach((cols, i) => {
+    const rowH = rowHeights[i];
     if (y + rowH > doc.page.height - 50) { doc.addPage(); y = doc.y; }
     if (i % 2 === 0) doc.rect(PAGE_MARGIN, y, doc.page.width - 2 * PAGE_MARGIN, rowH).fill(ACCENT_LIGHT);
     cols.forEach((val, ci) => {
       // Registro tipográfico "dado técnico" (IBM Plex Mono) — mesma decisão de
       // pdfProposal.js (ver comentário lá): tabelas de minuta (reajustes, ativos,
-      // aditivos) são majoritariamente numéricas/datas.
-      doc.fillColor(INK).font(F.mono).fontSize(9).text(String(val ?? '—'), PAGE_MARGIN + ci * colW + 6, y + 5, { width: colW - 8 });
+      // aditivos, infraestrutura) são majoritariamente numéricas/datas.
+      doc.fillColor(INK).font(F.mono).fontSize(fontSize).text(String(val ?? '—'), PAGE_MARGIN + ci * colW + cellPad, y + cellPad, { width: colW - 2 * cellPad });
     });
     y += rowH;
   });
@@ -98,6 +115,12 @@ function drawTableRows(doc, rows) {
   doc.y = y + 4;
 }
 
+// Fase 3.9 (seção 30/capa do modelo de cessão): layout exigido — "OPTIMON" / "MINUTA DE
+// CONTRATO DE CESSÃO ONEROSA DE USO DE INFRAESTRUTURA ÓPTICA" / "MINUTA PARA ANÁLISE E
+// VALIDAÇÃO JURÍDICA" + campos NICK NETWORK / PARCEIRO / CIDADE(S) / Nº DO CONTRATO /
+// VERSÃO / DATA. O banner âmbar "NÃO ASSINAR SEM REVISÃO DO JURÍDICO" da Fase 3.8 é
+// mantido — é um complemento operacional ao aviso da capa, não uma duplicação (a capa
+// nomeia O QUE é o documento; o banner instrui o QUE NÃO FAZER com ele).
 function renderCoverPage(doc, model) {
   const F = doc._brandFonts;
   const { width, height } = doc.page;
@@ -105,30 +128,32 @@ function renderCoverPage(doc, model) {
   doc.rect(0, height - 200, width, 200).fill(WARN_BG);
   // Texto sobre o retângulo WARN_BG (âmbar claro) — precisa de tinta escura para
   // contraste, nunca branco (diferente do restante da capa, que fica sobre o azul).
-  doc.fillColor(WARN).font(F.displayBold).fontSize(13).text('MINUTA PARA ANÁLISE JURÍDICA — NÃO ASSINAR SEM REVISÃO DO JURÍDICO', PAGE_MARGIN, height - 180, { width: width - 2 * PAGE_MARGIN });
+  doc.fillColor(WARN).font(F.displayBold).fontSize(13).text('NÃO ASSINAR SEM REVISÃO DO JURÍDICO', PAGE_MARGIN, height - 180, { width: width - 2 * PAGE_MARGIN });
   doc.fontSize(9).font(F.body).fillColor(INK).text('Este documento é gerado automaticamente a partir dos dados do sistema OptiMon e não constitui, em nenhuma hipótese, um contrato definitivo ou vinculante até revisão e aprovação do departamento jurídico da NICK.', PAGE_MARGIN, height - 158, { width: width - 2 * PAGE_MARGIN });
 
   if (LOGO_DARK_AVAILABLE) {
-    doc.image(LOGO_DARK_PATH, PAGE_MARGIN, 70, { width: 220 });
+    doc.image(LOGO_DARK_PATH, PAGE_MARGIN, 60, { width: 200 });
   } else {
-    doc.fillColor('#ffffff').font(F.display).fontSize(28).text('OPTIMON', PAGE_MARGIN, 90);
+    doc.fillColor('#ffffff').font(F.display).fontSize(26).text('OPTIMON', PAGE_MARGIN, 78);
   }
-  doc.fontSize(26).font(F.display).fillColor('#ffffff').text('Minuta de Contrato', PAGE_MARGIN, 250, { width: width - 2 * PAGE_MARGIN });
-  doc.fontSize(12).font(F.body).fillColor('#C7DFF2').text('Cessão de Infraestrutura de Rede Óptica', PAGE_MARGIN, 288);
+  doc.fontSize(20).font(F.display).fillColor('#ffffff').text('MINUTA DE CONTRATO DE CESSÃO ONEROSA DE USO DE INFRAESTRUTURA ÓPTICA', PAGE_MARGIN, 130, { width: width - 2 * PAGE_MARGIN });
+  doc.fontSize(12).font(F.bodySemibold).fillColor('#C7DFF2').text('MINUTA PARA ANÁLISE E VALIDAÇÃO JURÍDICA', PAGE_MARGIN, doc.y + 8);
 
   const info = [
-    ['Número', `${model.numero || '—'} (V${model.numero_versao || 1})`],
+    ['NICK Network', 'Cedente'],
     ['Parceiro', model.parceiro_nome],
-    ['Cidade', `${model.cidade_nome || '—'} — ${model.cidade_uf || '—'}`],
+    ['Cidade(s)', `${model.cidade_nome || '—'} — ${model.cidade_uf || '—'}`],
+    ['Nº do Contrato', model.numero || '—'],
+    ['Versão', `V${model.numero_versao || 1}`],
+    ['Data', fmtDate(new Date().toISOString())],
     ['Prazo', `${model.prazo_meses || '—'} meses`],
     ['Status atual', model.status],
-    ['Gerado em', fmtDate(new Date().toISOString())],
   ];
-  let y = 340;
+  let y = Math.max(doc.y + 30, 300);
   info.forEach(([label, value]) => {
     doc.font(F.bodySemibold).fontSize(10).fillColor('#C7DFF2').text(label.toUpperCase(), PAGE_MARGIN, y);
     doc.font(F.body).fontSize(13).fillColor('#ffffff').text(String(value), PAGE_MARGIN, y + 14);
-    y += 40;
+    y += 38;
   });
 }
 

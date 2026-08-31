@@ -48,7 +48,7 @@ router.get('/:id', async (req, res) => {
   const [
     { data: contrato, error: cError }, { data: pricingConfig }, { data: fibras }, { data: aditivos },
     { data: reajustes }, { data: envelopes }, { data: regras }, { data: clientesReservados }, { data: ativos },
-    { data: regrasSolicitacoes },
+    { data: regrasSolicitacoes }, rescisaoConfig,
   ] = await Promise.all([
     supabase.from('contratos').select('*, parceiros(id, razao_social, nome_fantasia, cnpj), cidades_infra(id, nome, uf)').eq('id', req.params.id).maybeSingle(),
     supabase.from('contrato_pricing_config').select('*').eq('contrato_id', req.params.id).maybeSingle(),
@@ -65,6 +65,9 @@ router.get('/:id', async (req, res) => {
     // Fase 3.8 (itens 3.8-09/3.8-10): workflow Engenharia → Comercial → Diretoria para
     // exceção de fibra de terceiros / rede própria (ver migration 20260929094500).
     supabase.from('contrato_regras_solicitacoes').select('*').eq('contrato_id', req.params.id).order('criado_em', { ascending: false }),
+    // Fase 3.9: parâmetros de multa por rescisão antecipada (migration 20260930090000) —
+    // maybeSingle porque pode não haver linha ainda (jurídico não configurou).
+    supabase.from('contrato_rescisao_config').select('*').eq('contrato_id', req.params.id).maybeSingle(),
   ]);
   if (cError) return handleError(res, cError);
   if (!contrato) return res.status(404).json({ error: `Contrato ${req.params.id} não encontrado.` });
@@ -79,6 +82,7 @@ router.get('/:id', async (req, res) => {
     clientes_reservados: clientesReservados || [],
     ativos: ativos || [],
     regras_solicitacoes: regrasSolicitacoes || [],
+    rescisao_config: rescisaoConfig.data || null,
   });
 });
 
@@ -93,11 +97,64 @@ router.patch('/:id/regras', async (req, res) => {
     'exclusividade_pop_id', 'exclusividade_servico', 'exclusividade_capacidade_max', 'exclusividade_prazo_meses',
     'proibe_fibra_terceiros', 'proibe_rede_propria', 'direito_preferencia', 'exige_aprovacao_expansao',
     'permite_outros_parceiros', 'direito_proprietario_explorar_capacidade_remanescente', 'observacoes',
+    // Fase 3.9 (migration 20260930090000): mecanismo de proteção da carteira quando a
+    // NICK cede ativos (OLT/ONU) — ver cláusula "Proteção da Carteira de Clientes" em
+    // contractDocumentModel.js. RLS (contrato_regras_write) já restringe a
+    // DIRETOR/ADMINISTRADOR, mesma proteção dos campos acima.
+    'mecanismo_protecao_carteira', 'detalhe_protecao_carteira',
   ];
   const patch = {};
   for (const c of campos) if (c in (req.body || {})) patch[c] = req.body[c];
   const { data, error } = await supabase
     .from('contrato_regras')
+    .upsert({ contrato_id: req.params.id, ...patch }, { onConflict: 'contrato_id' })
+    .select('*')
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
+// PATCH /api/contracts/:id/pricing-config — Fase 3.9: até esta rota não existir, não
+// havia NENHUM jeito de configurar contrato_pricing_config via API (confirmado por grep
+// antes de escrever esta rota) — só existia leitura (GET /:id) e escrita direta no banco.
+// Necessário para tornar take_or_pay_clientes (migration 20260930090000) de fato
+// configurável, não só um campo que só existe no schema. RLS (contrato_pricing_config_write)
+// já restringe a escrita a DIRETOR/ADMINISTRADOR — mesmo padrão de /regras acima.
+router.patch('/:id/pricing-config', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const campos = [
+    'modelo_cobranca', 'base_calculo_revenue_share', 'modelo_minimo', 'rampa_aplica_a',
+    'metodo_precificacao_dark_fiber', 'mensalidade_minima_porta', 'percentual_revenue_share',
+    'indice_reajuste', 'cobranca_portas_reservadas', 'take_or_pay_clientes',
+  ];
+  const patch = {};
+  for (const c of campos) if (c in (req.body || {})) patch[c] = req.body[c];
+  const { data, error } = await supabase
+    .from('contrato_pricing_config')
+    .upsert({ contrato_id: req.params.id, ...patch }, { onConflict: 'contrato_id' })
+    .select('*')
+    .maybeSingle();
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
+// PATCH /api/contracts/:id/rescisao-config — Fase 3.9 (migration 20260930090000): a
+// única forma de configurar os parâmetros de multa por rescisão antecipada. NUNCA um
+// percentual hardcoded no código — os valores só existem se o jurídico/Diretoria os
+// registrar aqui; até lá, a minuta mostra o placeholder "AGUARDANDO DEFINIÇÃO DO
+// JURÍDICO" (ver contractDocumentModel.js). RLS (contrato_rescisao_config_write)
+// restringe a DIRETOR/ADMINISTRADOR.
+router.patch('/:id/rescisao-config', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const campos = ['tipo_multa', 'percentual_multa', 'base_calculo', 'limite_multa', 'aviso_previo_dias', 'observacoes'];
+  const patch = {};
+  for (const c of campos) if (c in (req.body || {})) patch[c] = req.body[c];
+  // definido_por/definido_em NUNCA vêm do corpo da requisição nem são calculados aqui —
+  // igual ao padrão já usado em fn_regra_solicitacao_nasce/fn_aditivo_gera_versao
+  // (auth.uid() carimbado por trigger no Postgres, nunca confiado ao cliente/rota JS).
+  // Ver trigger fn_rescisao_config_carimba na migration 20260930090000.
+  const { data, error } = await supabase
+    .from('contrato_rescisao_config')
     .upsert({ contrato_id: req.params.id, ...patch }, { onConflict: 'contrato_id' })
     .select('*')
     .maybeSingle();

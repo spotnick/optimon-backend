@@ -137,23 +137,29 @@ async function generateContratoDocx(dados) {
     spacing: { after: 300 },
     shading: { type: ShadingType.CLEAR, fill: 'FEF3C7' },
     children: [new TextRun({
-      text: 'MINUTA PARA ANÁLISE JURÍDICA — NÃO ASSINAR SEM REVISÃO DO JURÍDICO. Este documento é gerado automaticamente a partir dos dados do sistema OptiMon e não constitui, em nenhuma hipótese, um contrato definitivo ou vinculante até revisão e aprovação do departamento jurídico da NICK.',
+      text: 'NÃO ASSINAR SEM REVISÃO DO JURÍDICO. Este documento é gerado automaticamente a partir dos dados do sistema OptiMon e não constitui, em nenhuma hipótese, um contrato definitivo ou vinculante até revisão e aprovação do departamento jurídico da NICK.',
       bold: true, color: WARN, size: 20,
     })],
   });
 
+  // Fase 3.9 (seção 30/capa do modelo de cessão): mesmo layout exigido do PDF (ver
+  // comentário equivalente em pdfContrato.js renderCoverPage) — título e subtítulo
+  // específicos, e os 6 campos obrigatórios (NICK Network / Parceiro / Cidade(s) / Nº do
+  // Contrato / Versão / Data), preservando Prazo/Status como campos adicionais.
   const capa = [
     logoParagraph,
-    new Paragraph({ text: 'Cessão de Infraestrutura de Rede Óptica', spacing: { after: 300 }, run: { size: 22, color: MUTED } }),
-    new Paragraph({ text: 'Minuta de Contrato', heading: HeadingLevel.TITLE, spacing: { after: 200 } }),
+    new Paragraph({ text: 'MINUTA DE CONTRATO DE CESSÃO ONEROSA DE USO DE INFRAESTRUTURA ÓPTICA', heading: HeadingLevel.TITLE, spacing: { after: 100 } }),
+    new Paragraph({ text: 'MINUTA PARA ANÁLISE E VALIDAÇÃO JURÍDICA', spacing: { after: 300 }, run: { size: 22, bold: true, color: MUTED } }),
     avisoJuridico,
     dataTable([
-      ['Número', `${model.numero || '—'} (V${model.numero_versao || 1})`],
+      ['NICK Network', 'Cedente'],
       ['Parceiro', model.parceiro_nome],
-      ['Cidade', `${model.cidade_nome || '—'} — ${model.cidade_uf || '—'}`],
+      ['Cidade(s)', `${model.cidade_nome || '—'} — ${model.cidade_uf || '—'}`],
+      ['Nº do Contrato', model.numero || '—'],
+      ['Versão', `V${model.numero_versao || 1}`],
+      ['Data', fmtDate(new Date().toISOString())],
       ['Prazo', `${model.prazo_meses || '—'} meses`],
       ['Status atual', model.status],
-      ['Gerado em', fmtDate(new Date().toISOString())],
     ]),
     new Paragraph({ text: '', pageBreakBefore: true }),
   ];

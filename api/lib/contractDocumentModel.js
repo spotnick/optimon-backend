@@ -98,6 +98,15 @@ function buildFibraTerceirosRedePropriaTexto(regras, solicitacoes) {
 
   const workflow = 'Qualquer exceção às duas proibições acima só é válida se percorrer, nesta ordem, as 3 etapas formais de aprovação da NICK: (1) parecer técnico de Engenharia; (2) parecer Comercial; (3) decisão final da Diretoria — qualquer etapa pode rejeitar diretamente, sem necessidade de percorrer as etapas seguintes, e a decisão é registrada de forma imutável no sistema. Uma exceção só entra em vigor automaticamente no momento em que a Diretoria a aprova; antes disso, a proibição permanece integralmente em vigor.';
 
+  // Fase 3.9 (seções 5-6): o workflow de 3 etapas já existia (Fase 3.8), mas o texto não
+  // listava os fundamentos válidos para uma exceção ser solicitada/aprovada — o prompt do
+  // usuário pede uma lista enumerada e não-genérica dos motivos aceitáveis, para orientar
+  // Engenharia/Comercial/Diretoria na avaliação de cada solicitação. Isto é texto
+  // explicativo do critério de julgamento — a autorização real de cada solicitação
+  // individual continua 100% do workflow em contrato_regras_solicitacoes, nunca decidida
+  // por esta lista sozinha.
+  const fundamentos = 'São hipóteses típicas que podem fundamentar uma solicitação de exceção (a avaliação final é sempre discricionária de Engenharia/Comercial/Diretoria, conforme a etapa, e esta lista não é exaustiva nem gera aprovação automática): indisponibilidade técnica comprovada da infraestrutura da NICK na área/rota necessária; falta de capacidade disponível (fibra ou porta PON) da NICK na área/rota necessária; indisponibilidade temporária da infraestrutura da NICK (ex.: obra, manutenção prolongada); inviabilidade econômica comprovada de atendimento via infraestrutura da NICK; determinação regulatória (Anatel ou outro órgão competente); situação de contingência ou emergência operacional; expansão para área ainda não coberta pela infraestrutura da NICK; ou autorização expressa da Diretoria da NICK, independentemente de outro fundamento específico.';
+
   let historico;
   if (!solicitacoes || solicitacoes.length === 0) {
     historico = 'Nenhuma solicitação de exceção foi registrada para este contrato até o momento da geração desta minuta.';
@@ -113,7 +122,7 @@ function buildFibraTerceirosRedePropriaTexto(regras, solicitacoes) {
     historico = `Solicitações registradas: ${linhas.join(' ')}`;
   }
 
-  return `${fibraTerceiros} ${redePropria} ${expansao} ${workflow} ${historico}`;
+  return `${fibraTerceiros} ${redePropria} ${expansao} ${workflow} ${fundamentos} ${historico}`;
 }
 
 const TIPO_CLIENTE_RESERVADO_LABEL = {
@@ -154,6 +163,12 @@ function buildClientesReservadosTexto(clientes) {
     partes.push(`Adicionalmente, os seguintes clientes/entidades são reservados por decisão comercial da NICK — ficam FORA do escopo de atendimento deste contrato, permanecendo sob responsabilidade direta da NICK ou de tratamento à parte: ${linhasComerciais.join('; ')}.`);
   }
 
+  // Fase 3.9 (seção 7): obrigação de notificação prévia para o caso de o parceiro ser
+  // espontaneamente procurado por um cliente/ente que se enquadraria como reservado mas
+  // ainda não está formalmente registrado como tal — evita a lacuna de o parceiro alegar
+  // desconhecimento por o registro formal ainda não existir no momento do contato.
+  partes.push('O parceiro se obriga a notificar previamente a NICK, antes de apresentar qualquer proposta comercial, sempre que for espontaneamente procurado por uma Prefeitura Municipal, órgão público, ou qualquer outro cliente/entidade que possa se enquadrar nos critérios de reserva desta cláusula — inclusive quando ainda não constar formalmente da lista acima —, para que a NICK avalie e, se for o caso, formalize a reserva antes de qualquer negociação prosseguir.');
+
   return partes.join(' ');
 }
 
@@ -161,7 +176,12 @@ const CLAUSULA_MODELO_JURIDICO = (titulo) =>
   `[CLÁUSULA-MODELO — AGUARDANDO REDAÇÃO DO JURÍDICO DA NICK] Não existe, nesta versão do sistema, fonte de dado estruturada nem redação jurídica aprovada para "${titulo}". Este parágrafo é um placeholder explícito — NÃO deve ser tratado como cláusula válida. O jurídico da NICK deve inserir o texto definitivo antes de qualquer assinatura.`;
 
 function buildContractDocumentModel(dados) {
-  const { contrato, parceiro, cidade, pricing_config: pc, regras, clientes_reservados: clientes, ativos, fibras_count, pons_count, aditivos, reajustes, regras_solicitacoes: solicitacoes } = dados;
+  const {
+    contrato, parceiro, cidade, pricing_config: pc, regras, clientes_reservados: clientes, ativos,
+    fibras_count, pons_count, aditivos, reajustes, regras_solicitacoes: solicitacoes,
+    rescisao_config: rescisao, ativos_devolucao: devolucoes, clientes_ativos_contrato: clientesAtivos,
+    infraestrutura_detalhe: infraDetalhe, rampa,
+  } = dados;
 
   const sections = [];
   let n = 0;
@@ -171,7 +191,13 @@ function buildContractDocumentModel(dados) {
   // 1. Capa (tratada à parte pelo renderer, número reservado)
   sections.push({ n: 0, titulo: 'Capa', tipo: 'capa' });
 
-  // Fase 3.8 (item 3.8-13): estrutura completa de 44 seções fixas — glossário dos termos
+  // Fase 3.8 (item 3.8-13) + Fase 3.9 (revisão completa das cláusulas — modelo de cessão
+  // onerosa de infraestrutura óptica): 51 cláusulas fixas (sempre presentes,
+  // independentemente dos dados do contrato) + até 5 tabelas condicionais que só aparecem
+  // quando o contrato tem o dado correspondente (Detalhamento da Infraestrutura Cedida,
+  // Rampa de Maturação Aplicável, Histórico de Reajustes Aplicados, Registros de
+  // Devolução de Ativos, Aditivos Registrados) — nunca um número de seções fixo e único,
+  // porque o conteúdo depende dos dados reais de cada contrato. Glossário dos termos
   // usados de forma consistente no resto desta minuta (Rede, Fibra, Porta PON, POP,
   // Take-or-Pay, Revenue Share, Aditivo). Não é cláusula-modelo à espera do jurídico: é
   // vocabulário do próprio sistema, sempre igual, nunca dependente de dado de contrato.
@@ -179,9 +205,37 @@ function buildContractDocumentModel(dados) {
 
   push('Objeto', `O presente instrumento tem por objeto a cessão onerosa, pela NICK, de infraestrutura de rede óptica (fibras, portas PON e/ou capacidade associada) ao parceiro ${parceiro.razao_social}${parceiro.nome_fantasia ? ` ("${parceiro.nome_fantasia}")` : ''}, CNPJ ${parceiro.cnpj || '—'}, na cidade de ${cidade.nome}/${cidade.uf}, para exploração comercial de serviços de telecomunicações pelo parceiro junto a seus próprios clientes finais, nos termos e condições estabelecidos nesta minuta.`);
 
+  // Fase 3.9 (seção 1 do modelo de cessão): a natureza jurídica do negócio precisa ser
+  // afirmada de forma explícita e nunca ambígua — o prompt do usuário proíbe
+  // expressamente o uso do termo "rede neutra" para caracterizar este contrato (que tem
+  // uma conotação regulatória distinta: compartilhamento de infraestrutura passiva entre
+  // múltiplos operadores em condições isonômicas). O que a NICK pratica é cessão onerosa
+  // e não-exclusiva (por padrão) de direito de uso sobre ativos específicos e
+  // identificados (fibra apagada e/ou porta PON) a UM parceiro determinado, mediante
+  // contraprestação financeira — nunca a exploração compartilhada e simultânea do mesmo
+  // recurso por múltiplos operadores em pé de igualdade.
+  push('Natureza Jurídica da Cessão', `O presente instrumento caracteriza-se como CESSÃO ONEROSA DE DIREITO DE USO DE INFRAESTRUTURA ÓPTICA / PORTAS PON / RECURSOS DE REDE, mediante contraprestação financeira nos termos das cláusulas de Pagamento, Take-or-Pay e Revenue Share. Esta cessão NÃO caracteriza, em nenhuma hipótese, "rede neutra" (compartilhamento simultâneo e isonômico da mesma infraestrutura entre múltiplos operadores) — trata-se de cessão de uso de recursos específicos e identificados (fibra apagada e/ou porta(s) PON, conforme cláusula de Infraestrutura) a um único parceiro determinado, sob as condições de exclusividade (ou não-exclusividade) expressamente definidas na cláusula de Exclusividade. A NICK permanece, em qualquer hipótese, proprietária de toda a infraestrutura física cedida (ver cláusula de Propriedade dos Ativos).`);
+
   push('Cessão de Rede', `A NICK cede ao parceiro o direito de uso da infraestrutura descrita na cláusula de Infraestrutura, pelo prazo e condições financeiras aqui definidos. A cessão não transfere a propriedade da infraestrutura física (fibras, cabos, postes, portas PON), que permanece integralmente da NICK — ver cláusula de Propriedade dos Ativos.`);
 
-  push('Infraestrutura', `Este contrato está vinculado a ${fmtInt(fibras_count)} fibra(s) e ${fmtInt(pons_count)} porta(s) PON ativamente alocadas na cidade de ${cidade.nome}/${cidade.uf}. O detalhamento técnico completo (identificação de cada fibra/porta, POP de origem) consta do sistema de gestão de infraestrutura da NICK e deve ser anexado como apêndice técnico a esta minuta.`);
+  // Fase 3.9 (seção 3 do modelo de cessão): antes só havia contagem agregada
+  // (fibras_count/pons_count) — agora, quando app.contrato_documento_dados() retorna o
+  // detalhamento por recurso (infraestrutura_detalhe: cidade/POP/rota/cabo/capacidade do
+  // cabo/recurso cedido/comprimento/postes/capacidade máxima/data de início), a minuta
+  // renderiza a tabela completa em vez de só o texto agregado — nunca inventando uma
+  // linha para um recurso que não está de fato vinculado no sistema.
+  push('Infraestrutura', `Este contrato está vinculado a ${fmtInt(fibras_count)} fibra(s) e ${fmtInt(pons_count)} porta(s) PON ativamente alocadas na cidade de ${cidade.nome}/${cidade.uf}. O detalhamento por recurso cedido consta da tabela a seguir (quando disponível) e do sistema de gestão de infraestrutura da NICK, que deve ser considerado a fonte de verdade em caso de qualquer divergência.`);
+  if (infraDetalhe && infraDetalhe.length > 0) {
+    pushTabela('Detalhamento da Infraestrutura Cedida', infraDetalhe.map((r) => [
+      `${r.cidade}/${r.uf}`, r.pop || '—', r.rota || '—', r.cabo || '—',
+      r.cabo_capacidade_fo != null ? `${fmtInt(r.cabo_capacidade_fo)} FO` : '—',
+      r.recurso_cedido, r.identificacao_recurso || '—',
+      r.comprimento_km != null ? `${Number(r.comprimento_km).toLocaleString('pt-BR')} km` : '—',
+      r.postes_envolvidos != null ? fmtInt(r.postes_envolvidos) : '—',
+      r.capacidade_maxima != null ? `${fmtInt(r.capacidade_maxima)} assinantes` : '—',
+      fmtDate(r.data_inicio),
+    ]));
+  }
 
   // Fase 3.8 (item 3.8-13): sem fonte de dado estruturada para SLA (tempo de resposta,
   // uptime mínimo, janela de manutenção) — nenhum desses valores existe no schema hoje;
@@ -189,6 +243,17 @@ function buildContractDocumentModel(dados) {
   push('Nível de Serviço (SLA)', CLAUSULA_MODELO_JURIDICO('Nível de Serviço — uptime mínimo garantido, tempo de resposta a incidentes, janelas de manutenção programada e eventuais créditos por descumprimento'));
 
   push('Responsabilidades das Partes', 'A NICK é responsável por: manter a infraestrutura cedida em condições operacionais; comunicar previamente manutenções programadas; disponibilizar canal de suporte técnico. O parceiro é responsável por: atendimento aos seus clientes finais; contratação/manutenção de equipamentos ativos de sua rede (exceto ativos cedidos pela NICK, ver cláusula de Ativos); cumprimento da legislação de telecomunicações aplicável; pagamento pontual dos valores devidos nos termos desta minuta.');
+
+  // Fase 3.9 (seção 12 do modelo de cessão): lista exaustiva e explícita de custos de
+  // instalação do cliente final — 100% do parceiro, nunca da NICK, para não deixar
+  // margem a interpretação de que algum item estaria incluído na cessão de infraestrutura.
+  push('Responsabilidade pela Instalação do Cliente Final', 'É de responsabilidade EXCLUSIVA e integral do parceiro, sem qualquer participação financeira ou operacional da NICK, tudo o que for necessário para conectar e manter cada cliente final, incluindo mas não se limitando a: drop (cabo de acesso do cliente), instalação e manutenção de CTO (Caixa de Terminação Óptica) do lado do cliente, splitters, conectores e demais materiais de conectorização, ONU/ONT do cliente, roteador/equipamento CPE, todo e qualquer material de instalação, mão de obra própria ou terceirizada, deslocamento e visita técnica, ativação do serviço, e manutenção e suporte técnico ao cliente final. A cessão de infraestrutura objeto desta minuta (fibra apagada e/ou porta PON — ver cláusula de Infraestrutura) não inclui, em nenhuma hipótese, qualquer um destes itens.');
+
+  // Fase 3.9 (seção 13): a cessão de infraestrutura óptica passiva/porta PON é
+  // expressamente distinta do acesso à internet (trânsito IP) — evita a interpretação
+  // (comum no mercado de cessão de infraestrutura) de que "porta ativada" implica
+  // "internet entregue".
+  push('Acesso à Internet (Link IP)', 'A cessão objeto desta minuta compreende exclusivamente o direito de uso da infraestrutura óptica passiva e/ou porta(s) PON descritas na cláusula de Infraestrutura — NÃO compreende, em nenhuma hipótese, o fornecimento de acesso à internet (trânsito IP), CDN, upstream, BGP, CGNAT ou serviços de DNS aos clientes finais do parceiro, salvo se expressamente especificado em aditivo próprio. O parceiro é integralmente responsável por contratar, operacionalizar e manter, por conta própria, toda a conectividade IP necessária para entregar o serviço de internet a seus clientes finais.');
 
   // Fase 3.8 (item 3.8-13): grounded — reafirma, sem inventar prazos/valores, a divisão de
   // manutenção já estabelecida na cláusula anterior, remetendo à de Auditoria para o canal
@@ -216,6 +281,16 @@ function buildContractDocumentModel(dados) {
     ? `Adicionalmente ao mínimo mensal garantido (Take-or-Pay) — e sempre SOMADO a ele, nunca em substituição —, será apurado revenue share de ${fmtPct(pc.percentual_revenue_share)} sobre a base de cálculo "${pc.base_calculo_revenue_share || '—'}", incidente sobre a totalidade do faturamento apurado no período, independentemente de esse valor superar ou não o mínimo mensal garantido.`
     : 'Percentual de revenue share não está configurado para este contrato — deve ser confirmado antes da assinatura.');
 
+  // Fase 3.9 (seção 21): Take-or-Pay em QUANTIDADE de clientes — distinto e adicional ao
+  // Take-or-Pay monetário (cláusula anterior). take_or_pay_clientes vem de
+  // contrato_pricing_config (migration 20260930090000); clientes_ativos_contrato é a
+  // contagem real agregada de app.contrato_documento_dados() (soma de
+  // infra_portas_pon.capacidade_utilizada_assinantes das portas vinculadas a este
+  // contrato) — nunca um número estimado ou hardcoded.
+  push('Take-or-Pay em Quantidade de Clientes', pc?.take_or_pay_clientes != null
+    ? `Independentemente do Take-or-Pay monetário (cláusula anterior), fica estabelecido um compromisso mínimo de ${fmtInt(pc.take_or_pay_clientes)} cliente(s) ativo(s) conectados através da infraestrutura cedida por este contrato. Na data de geração desta minuta, o sistema da NICK registra ${fmtInt(clientesAtivos)} cliente(s) ativo(s) vinculado(s) a este contrato${Number(clientesAtivos || 0) < Number(pc.take_or_pay_clientes) ? ` — HÁ DÉFICIT de ${fmtInt(Number(pc.take_or_pay_clientes) - Number(clientesAtivos || 0))} cliente(s) em relação ao compromisso mínimo, a ser tratado conforme regras comerciais/jurídicas aplicáveis` : ', atingindo ou superando o compromisso mínimo estabelecido'}. Este compromisso é independente e não substitui o Take-or-Pay monetário da cláusula anterior.`
+    : `Este contrato não possui compromisso mínimo de quantidade de clientes (Take-or-Pay em clientes) configurado em contrato_pricing_config — aplica-se somente o Take-or-Pay monetário da cláusula anterior. Na data de geração desta minuta, o sistema da NICK registra ${fmtInt(clientesAtivos)} cliente(s) ativo(s) vinculado(s) a este contrato, para referência.`);
+
   push('Reajuste Anual', `Os valores desta minuta serão reajustados anualmente pelo índice ${pc?.indice_reajuste || 'a definir'}, aplicado sobre a competência de referência, conforme histórico de reajustes já aplicados a este contrato (ver tabela). Reajustes futuros seguem o motor de precificação da NICK (app.aplicar_reajuste_contrato) e nunca são aplicados retroativamente.`);
   if (reajustes && reajustes.length > 0) {
     pushTabela('Histórico de Reajustes Aplicados', reajustes.map((r) => [fmtDate(r.competencia_base), fmtPct(r.percentual_aplicado), r.status]));
@@ -232,7 +307,23 @@ function buildContractDocumentModel(dados) {
     ? `Este contrato vigora a partir de ${fmtDate(contrato.data_inicio)}, pelo prazo estabelecido na cláusula de Prazo Mínimo Contratual, com término previsto em ${dataFimPrevista ? fmtDate(dataFimPrevista) : '—'}. Não há renovação automática: a continuidade da relação após o término da vigência depende de novo contrato ou de aditivo formal de prorrogação, celebrado antes do vencimento — nunca presumida pelo mero decurso do prazo ou pela continuidade de fato da prestação do serviço.`
     : 'Data de início deste contrato não está registrada no sistema — deve ser confirmada antes da assinatura. Não há renovação automática: qualquer prorrogação exige aditivo formal celebrado antes do vencimento.');
 
-  push('Carência', 'Fica estabelecido período de carência (rampa de maturação) durante o qual o valor mínimo mensal garantido é reduzido conforme tabela de rampa vigente no sistema da NICK (app.get_fator_rampa), até atingir 100% do valor integral. Os percentuais e prazos exatos da rampa aplicável a este contrato devem ser conferidos no sistema antes da assinatura, pois podem ser específicos deste contrato ou seguir a régua padrão global.');
+  // Fase 3.9 (seção 17): antes só descrevia o mecanismo em texto genérico ("conferir no
+  // sistema") sem os valores reais. app.contrato_documento_dados() agora retorna a régua
+  // efetivamente aplicável a este contrato (específica do contrato, com fallback
+  // automático para a régua padrão global via app.get_fator_rampa quando não houver régua
+  // própria) — a minuta renderiza os valores reais, nunca um percentual hardcoded.
+  const RAMPA_COMPONENTE_LABEL = { FIXO_MINIMO: 'Take-or-Pay (mínimo mensal)', REVENUE_SHARE: 'Revenue Share', AMBOS: 'Take-or-Pay e Revenue Share' };
+  const rampaTexto = rampa && rampa.length > 0
+    ? `Fica estabelecido período de carência (rampa de maturação) durante o qual os valores devidos são reduzidos progressivamente conforme os degraus abaixo, aplicados pelo motor de precificação da NICK (app.get_fator_rampa), até atingir 100% do valor integral. A régua abaixo é a efetivamente vigente para este contrato (específica, quando cadastrada, ou a régua padrão global da NICK).`
+    : 'Fica estabelecido período de carência (rampa de maturação) durante o qual o valor mínimo mensal garantido é reduzido conforme tabela de rampa vigente no sistema da NICK (app.get_fator_rampa), até atingir 100% do valor integral. Nenhuma régua de rampa foi encontrada no sistema (nem específica deste contrato, nem padrão global) — deve ser confirmado antes da assinatura.';
+  push('Carência', rampaTexto);
+  if (rampa && rampa.length > 0) {
+    pushTabela('Rampa de Maturação Aplicável', rampa.map((r) => [
+      r.month_end != null ? `Meses ${fmtInt(r.month_start)}–${fmtInt(r.month_end)}` : `Mês ${fmtInt(r.month_start)} em diante`,
+      fmtPct(r.percentage, 0),
+      RAMPA_COMPONENTE_LABEL[r.component] || r.component,
+    ]));
+  }
 
   push('Prazo Mínimo Contratual (48 meses)', contrato.prazo_minimo_excecao
     ? `Este contrato tem prazo de ${fmtInt(contrato.prazo_meses)} meses, ABAIXO do mínimo contratual padrão de 48 meses, com exceção formalmente registrada (motivo: ${contrato.motivo_excecao_prazo || '—'}). Esta exceção deve ser revisada pelo jurídico antes da assinatura.`
@@ -243,23 +334,73 @@ function buildContractDocumentModel(dados) {
   push('Inadimplência', CLAUSULA_MODELO_JURIDICO('Inadimplência — consequências, prazos de notificação, encargos moratórios e critérios de caracterização'));
   push('Rescisão', CLAUSULA_MODELO_JURIDICO('Rescisão — hipóteses, prazos de notificação prévia, efeitos'));
   push('Penalidades', CLAUSULA_MODELO_JURIDICO('Penalidades — multas e critérios de aplicação'));
-  push('Multa por Rescisão Antecipada', CLAUSULA_MODELO_JURIDICO('Multa por Rescisão Antecipada — critério de cálculo (ex.: proporcional ao saldo do prazo mínimo contratual) em caso de encerramento por iniciativa do parceiro antes do fim da vigência'));
+
+  // Fase 3.9 (seção 22): antes um placeholder puro. Agora, quando o jurídico já
+  // configurou contrato_rescisao_config (migration 20260930090000), a minuta renderiza os
+  // parâmetros reais com a moldura "SUGESTÃO PARA ANÁLISE JURÍDICA" (nunca um valor
+  // definitivo apresentado como se fosse cláusula pronta); quando ainda não configurado,
+  // mantém o placeholder explícito — em nenhum caso um percentual é inventado ou
+  // hardcoded no código.
+  const TIPO_MULTA_LABEL = { PERCENTUAL_SALDO_MINIMO: 'percentual sobre o saldo mínimo vincendo', VALOR_FIXO: 'valor fixo', FORMULA_JURIDICO: 'fórmula própria (ver observações)' };
+  push('Multa por Rescisão Antecipada', rescisao && (rescisao.tipo_multa || rescisao.percentual_multa != null)
+    ? `SUGESTÃO PARA ANÁLISE JURÍDICA (parâmetros registrados pela Diretoria/Jurídico da NICK no sistema, sujeitos a revisão e redação final do jurídico antes da assinatura): critério de cálculo — ${TIPO_MULTA_LABEL[rescisao.tipo_multa] || rescisao.tipo_multa || 'não especificado'}${rescisao.percentual_multa != null ? `; percentual — ${fmtPct(rescisao.percentual_multa, 2)}` : ''}${rescisao.base_calculo ? `; base de cálculo — ${rescisao.base_calculo}` : ''}${rescisao.limite_multa != null ? `; teto — ${fmtBRL(rescisao.limite_multa)}` : ''}${rescisao.aviso_previo_dias != null ? `; aviso prévio mínimo — ${fmtInt(rescisao.aviso_previo_dias)} dias` : ''}${rescisao.observacoes ? `. Observações do jurídico: ${rescisao.observacoes}` : ''}. Este parágrafo não é redação contratual definitiva — a redação final é de responsabilidade exclusiva do jurídico da NICK.`
+    : CLAUSULA_MODELO_JURIDICO('Multa por Rescisão Antecipada — critério de cálculo (ex.: proporcional ao saldo do prazo mínimo contratual) em caso de encerramento por iniciativa do parceiro antes do fim da vigência. AGUARDANDO DEFINIÇÃO DO JURÍDICO/DIRETORIA em contrato_rescisao_config — nenhum percentual foi configurado para este contrato'));
 
   const ativosTexto = ativos && ativos.length > 0
     ? `Os seguintes ativos da NICK estão vinculados a este contrato: ${ativos.map((a) => `${a.tipo}${a.modelo ? ` ${a.modelo}` : ''}${a.patrimonio ? ` (patrimônio ${a.patrimonio})` : ''}`).join('; ')}.`
     : 'Nenhum ativo (OLT/ONU/equipamento) da NICK está registrado como vinculado a este contrato no sistema. Se houver equipamento cedido na prática, ele deve ser registrado e vinculado antes da assinatura.';
   push('Ativos e Equipamentos (OLT/ONU)', ativosTexto);
   if (ativos && ativos.length > 0) {
-    pushTabela('Relação de Ativos Vinculados', ativos.map((a) => [a.tipo, a.modelo || '—', a.numero_serie || '—', a.patrimonio || '—', a.status]));
+    // Fase 3.9 (seção 14): coluna "Proprietário" explícita. A tabela ativos não tem uma
+    // coluna de proprietário própria — por definição de sistema (todo registro nesta
+    // tabela É um ativo da NICK cedido em comodato/locação, nunca um ativo do parceiro,
+    // ver comentário da migration 20260929100000), então o valor é sempre "NICK", nunca
+    // inferido ou deixado em branco.
+    pushTabela('Relação de Ativos Vinculados', ativos.map((a) => [a.tipo, a.modelo || '—', a.numero_serie || '—', a.patrimonio || '—', 'NICK', a.status]));
   }
 
   push('Propriedade dos Ativos', 'Todos os ativos físicos cedidos nos termos desta minuta (fibras, cabos, postes, portas PON e eventuais equipamentos OLT/ONU listados na cláusula anterior) permanecem, em qualquer hipótese, de propriedade exclusiva da NICK. A cessão de uso não constitui, em nenhuma circunstância, transferência de propriedade.');
 
-  push('Devolução de Ativos', 'Encerrado o contrato por qualquer motivo, o parceiro se obriga a devolver à NICK, em condições operacionais normais, todos os ativos cedidos nos termos da cláusula de Ativos e Equipamentos, sujeitando-se a eventual apuração de perdas e danos conforme registro de devolução (ativos_devolucao) no sistema da NICK.');
+  // Fase 3.9 (seção 15): antes só texto genérico. Agora renderiza os registros formais
+  // reais de ativos_devolucao (migration 20260929100000 + exposto em
+  // contrato_documento_dados na migration 20260930090000) quando existirem.
+  push('Devolução de Ativos', devolucoes && devolucoes.length > 0
+    ? `Encerrado o contrato por qualquer motivo, o parceiro se obriga a devolver à NICK, em condições operacionais normais, todos os ativos cedidos nos termos da cláusula de Ativos e Equipamentos, sujeitando-se a eventual apuração de perdas e danos conforme registro formal de devolução no sistema da NICK. Este contrato já possui ${fmtInt(devolucoes.length)} registro(s) de devolução (ver tabela).`
+    : 'Encerrado o contrato por qualquer motivo, o parceiro se obriga a devolver à NICK, em condições operacionais normais, todos os ativos cedidos nos termos da cláusula de Ativos e Equipamentos, sujeitando-se a eventual apuração de perdas e danos conforme registro de devolução (ativos_devolucao) no sistema da NICK. Nenhum registro de devolução existe para este contrato até o momento da geração desta minuta.');
+  if (devolucoes && devolucoes.length > 0) {
+    pushTabela('Registros de Devolução de Ativos', devolucoes.map((d) => [
+      `${d.ativo_tipo}${d.ativo_patrimonio ? ` (${d.ativo_patrimonio})` : ''}`,
+      fmtDate(d.data_solicitacao), d.data_devolucao ? fmtDate(d.data_devolucao) : 'pendente',
+      d.condicao || '—', d.status_final || 'em aberto',
+      d.valor_perdas_danos != null ? fmtBRL(d.valor_perdas_danos) : '—',
+    ]));
+  }
 
   push('Seguro', CLAUSULA_MODELO_JURIDICO('Seguro — obrigatoriedade e cobertura mínima de seguro sobre os ativos cedidos (OLT/ONU/ONT/fonte/switch) durante a vigência do contrato'));
 
-  push('Auditoria', 'A NICK se reserva o direito de auditar, a qualquer tempo e mediante aviso razoável, o uso da infraestrutura cedida e os dados que fundamentam a apuração de faturamento e revenue share deste contrato. Todo evento relevante deste contrato é registrado de forma imutável no log de auditoria do sistema da NICK (nunca sujeito a alteração ou exclusão).');
+  // Fase 3.9 (seção 25): quando a NICK cede ativos (OLT/ONU), a proteção econômica da
+  // NICK sobre a operação NÃO é copropriedade automática da carteira de clientes — é uma
+  // das 4 opções estruturadas que o jurídico escolhe explicitamente em
+  // contrato_regras.mecanismo_protecao_carteira (migration 20260930090000). NAO_DEFINIDO
+  // (valor padrão) é sinalizado como pendência, nunca presumido como "sem proteção".
+  const PROTECAO_CARTEIRA_LABEL = {
+    OPCAO_A_DIREITO_PREFERENCIA_AQUISICAO: 'Opção A — Direito de Preferência de Aquisição da Operação: a NICK tem direito de preferência para adquirir a operação/carteira de clientes do parceiro, nas mesmas condições ofertadas por terceiros, antes de qualquer venda ou transferência.',
+    OPCAO_B_DIREITO_CONTINUIDADE_OPERACAO: 'Opção B — Direito de Continuidade/Indicação de Terceiro: em caso de encerramento da operação do parceiro, a NICK tem o direito de assumir diretamente ou indicar terceiro para dar continuidade ao atendimento dos clientes finais conectados através da infraestrutura cedida.',
+    OPCAO_C_COMPENSACAO_ECONOMICA: 'Opção C — Compensação Econômica: a NICK tem direito a uma compensação econômica calculada nos termos a definir pelo jurídico, em razão do valor agregado pelos ativos cedidos (OLT/ONU) à operação do parceiro.',
+    OPCAO_D_DEVOLUCAO_OU_AQUISICAO_ATIVOS: 'Opção D — Devolução ou Aquisição Formal de Ativos: ao final do contrato ou na hipótese configurada pelo jurídico, o parceiro deve devolver os ativos cedidos pela NICK (ver cláusula de Devolução de Ativos) ou formalmente adquiri-los, nos termos a definir.',
+  };
+  push('Proteção da Carteira de Clientes (quando há ativos cedidos pela NICK)', (regras?.mecanismo_protecao_carteira && regras.mecanismo_protecao_carteira !== 'NAO_DEFINIDO')
+    ? `Nos contratos em que a NICK cede ativos (OLT/ONU — ver cláusula de Ativos e Equipamentos), aplica-se o seguinte mecanismo de proteção econômica da NICK sobre a operação do parceiro, definido pelo jurídico/Diretoria da NICK para este contrato: ${PROTECAO_CARTEIRA_LABEL[regras.mecanismo_protecao_carteira] || regras.mecanismo_protecao_carteira}${regras.detalhe_protecao_carteira ? ` Detalhamento: ${regras.detalhe_protecao_carteira}` : ''} Este mecanismo NÃO constitui, em nenhuma hipótese, copropriedade automática da NICK sobre a carteira de clientes do parceiro.`
+    : 'AGUARDANDO DEFINIÇÃO DO JURÍDICO/DIRETORIA — nenhum mecanismo de proteção da carteira de clientes foi configurado para este contrato (contrato_regras.mecanismo_protecao_carteira = NAO_DEFINIDO). Caso este contrato envolva cessão de ativos (OLT/ONU) pela NICK, o jurídico deve escolher, antes da assinatura, dentre as 4 opções estruturadas do sistema (direito de preferência de aquisição / direito de continuidade ou indicação de terceiro / compensação econômica / devolução ou aquisição formal de ativos) — em nenhuma hipótese a proteção da NICK se dá por copropriedade automática da carteira de clientes.');
+
+  // Fase 3.9 (seção 20): quando o contrato tem remuneração variável (revenue share)
+  // configurada, a cláusula passa a enumerar explicitamente os pontos de dado exigíveis
+  // na auditoria, em vez de só afirmar o direito de auditar em abstrato — condição para o
+  // relatório mensal servir de fato de base fiscalizável (API/relatório mensal, clientes
+  // ativos, faturamento bruto/elegível, cancelamentos, inadimplência, upgrades/downgrades).
+  push('Auditoria', pc?.percentual_revenue_share != null
+    ? `A NICK se reserva o direito de auditar, a qualquer tempo e mediante aviso razoável, o uso da infraestrutura cedida e os dados que fundamentam a apuração de faturamento e revenue share deste contrato. Como este contrato possui remuneração variável (revenue share — ver cláusula de Revenue Share), o parceiro se obriga a fornecer mensalmente à NICK, por relatório e/ou integração de sistemas (ver cláusula de Integração com Sistemas do Parceiro), no mínimo: quantidade de clientes ativos vinculados à infraestrutura cedida; faturamento bruto e faturamento elegível (base de cálculo do revenue share) apurados no mês; cancelamentos ocorridos no período; situação de inadimplência dos clientes; e eventuais upgrades/downgrades de plano que afetem a base de cálculo. Todo evento relevante deste contrato é registrado de forma imutável no log de auditoria do sistema da NICK (nunca sujeito a alteração ou exclusão).`
+    : 'A NICK se reserva o direito de auditar, a qualquer tempo e mediante aviso razoável, o uso da infraestrutura cedida e os dados que fundamentam a apuração de faturamento deste contrato. Todo evento relevante deste contrato é registrado de forma imutável no log de auditoria do sistema da NICK (nunca sujeito a alteração ou exclusão).');
 
   push('Exclusividade', buildExclusividadeTexto(regras));
   push('Rede Própria do Parceiro e Fibras de Terceiros', buildFibraTerceirosRedePropriaTexto(regras, solicitacoes));
@@ -279,8 +420,36 @@ function buildContractDocumentModel(dados) {
   push('Proteção de Dados (LGPD)', CLAUSULA_MODELO_JURIDICO('Proteção de Dados Pessoais / LGPD'));
   push('Propriedade Intelectual e Uso de Marca', CLAUSULA_MODELO_JURIDICO('Propriedade Intelectual e Uso de Marca — condições para o parceiro referenciar a marca/rede da NICK em material comercial próprio'));
   push('Compliance, Ética e Anticorrupção', CLAUSULA_MODELO_JURIDICO('Compliance, Ética e Anticorrupção — declarações e obrigações das partes nos termos da Lei 12.846/2013 e política de compliance da NICK'));
-  push('Independência das Partes', CLAUSULA_MODELO_JURIDICO('Independência das Partes — este contrato não constitui sociedade, consórcio, vínculo empregatício ou relação de representação entre NICK e parceiro'));
-  push('Cessão da Posição Contratual', CLAUSULA_MODELO_JURIDICO('Cessão da Posição Contratual — condições (se houver) para o parceiro ceder sua posição contratual a terceiro, sempre sujeita a anuência prévia da NICK'));
+  // Fase 3.9 (seção 24): de-placeholder — o próprio prompt do usuário forneceu a
+  // enumeração exigida (não constitui sociedade, associação, joint venture, representação
+  // comercial, franquia, relação trabalhista, mandato), então esta cláusula tem redação
+  // própria e específica desde já, diferentemente das cláusulas ainda pendentes de
+  // redação exclusiva do jurídico (que continuam como CLAUSULA_MODELO_JURIDICO).
+  push('Independência das Partes', 'Este contrato não constitui, em nenhuma hipótese, sociedade, associação, joint venture, consórcio, representação comercial, agência, franquia, relação de emprego/vínculo empregatício, ou mandato entre a NICK e o parceiro. As partes atuam como pessoas jurídicas independentes, cada uma responsável por seus próprios empregados, prepostos, obrigações fiscais, trabalhistas e previdenciárias, não havendo solidariedade ou subsidiariedade entre elas por atos, dívidas ou obrigações da outra parte perante terceiros, ressalvado o expressamente previsto nesta minuta.');
+
+  // Fase 3.9 (seção 26): de-placeholder — cobre tanto a cessão da posição contratual em
+  // si (mecanismo geral) quanto, especificamente, a venda/transferência da operação do
+  // parceiro (change of control) para um novo controlador/adquirente, que exige um rito
+  // próprio (comunicação prévia, identificação do comprador, análise de crédito, anuência
+  // contratual da NICK, transferência formal das obrigações, preservação dos direitos da
+  // NICK) — sem o qual a mudança de controle/venda da operação poderia, na prática,
+  // driblar as cláusulas de exclusividade, clientes reservados e restrição de rede
+  // concorrente ao simplesmente trocar quem controla o parceiro.
+  push('Cessão da Posição Contratual e Venda/Transferência da Operação do Parceiro', 'A cessão, no todo ou em parte, da posição contratual do parceiro nesta minuta a terceiro depende de anuência prévia e expressa da NICK, sem a qual é nula e ineficaz perante a NICK. Especificamente na hipótese de venda ou transferência da operação do parceiro (incluindo mudança de controle societário) que envolva, direta ou indiretamente, os direitos e obrigações desta minuta, o parceiro se obriga a: (a) comunicar formalmente a NICK com antecedência mínima a ser definida pelo jurídico; (b) identificar o comprador/novo controlador; (c) permitir que a NICK realize análise de crédito e idoneidade do comprador/novo controlador; (d) obter a anuência contratual expressa da NICK antes da conclusão da operação; (e) assegurar a transferência formal, ao comprador/novo controlador, de todas as obrigações desta minuta (incluindo exclusividade, clientes reservados, restrição de rede concorrente e take-or-pay); e (f) preservar integralmente, perante o comprador/novo controlador, todos os direitos da NICK previstos nesta minuta. A NICK pode recusar a anuência de forma fundamentada, especialmente quando o comprador/novo controlador for concorrente direto da NICK ou não oferecer garantias equivalentes de idoneidade e capacidade de cumprimento contratual.');
+
+  // Fase 3.9 (seção 29): a cessão está sujeita à regulação de telecomunicações — o
+  // parceiro mantém suas próprias outorgas/licenças perante a Anatel, e a cessão não pode
+  // ser apresentada como dispensando qualquer obrigação regulatória do parceiro. A
+  // validação jurídica/regulatória final é sempre do jurídico da NICK — esta cláusula
+  // afirma o princípio geral, não substitui análise regulatória específica.
+  push('Regulatório (Anatel)', 'A prestação de serviços de telecomunicações pelo parceiro a seus clientes finais está sujeita à regulamentação da Agência Nacional de Telecomunicações (Anatel) e demais órgãos competentes. O parceiro é integralmente responsável por obter e manter, por conta própria, todas as outorgas, licenças, autorizações e registros regulatórios exigidos para a prestação do serviço aos seus clientes finais — a cessão de infraestrutura objeto desta minuta NÃO dispensa, substitui ou supre qualquer obrigação regulatória do parceiro perante a Anatel ou outro órgão competente. Esta cláusula não constitui validação jurídica ou regulatória definitiva quanto ao enquadramento desta cessão perante a regulamentação setorial vigente — tal validação é de responsabilidade do jurídico da NICK antes da assinatura.');
+
+  // Fase 3.9 (seção 19): apenas a POSSIBILIDADE de integração é descrita aqui — a
+  // integração HubSoft real está explicitamente fora de escopo desta fase ("Deixando
+  // para depois: integração HubSoft", instrução original do projeto). Esta cláusula nunca
+  // altera responsabilidades contratuais: a integração, quando existir, é só automação de
+  // medição, não fonte de nenhuma obrigação nova.
+  push('Integração com Sistemas do Parceiro (ex.: HubSoft)', 'A NICK poderá, mediante acordo específico entre as partes e sem qualquer obrigação de fazê-lo, disponibilizar integração via API com o sistema de gestão do parceiro (ex.: HubSoft ou similar) para fins exclusivos de automação da apuração de medição de faturamento/revenue share (ver cláusula de Auditoria de Faturamento). Esta eventual integração é meramente instrumental e de automação operacional — em nenhuma hipótese altera, cria ou extingue qualquer responsabilidade, obrigação ou direito contratual das partes previstos nesta minuta. Enquanto não implementada, a apuração de faturamento/revenue share segue o processo manual/via relatório descrito na cláusula de Auditoria.');
   push('Comunicações e Notificações entre as Partes', CLAUSULA_MODELO_JURIDICO('Comunicações e Notificações — meios válidos de comunicação formal entre as partes e seus efeitos'));
   push('Tolerância e Não Renúncia', CLAUSULA_MODELO_JURIDICO('Tolerância e Não Renúncia — a tolerância de uma parte quanto ao descumprimento da outra não implica renúncia ao direito nem novação'));
   push('Nulidade Parcial (Independência das Cláusulas)', CLAUSULA_MODELO_JURIDICO('Nulidade Parcial — a invalidade de uma cláusula não compromete a validade das demais'));
