@@ -22,6 +22,12 @@ const STATUS_LABELS = {
   RECUSADA: 'Recusada',
   EXPIRADA: 'Expirada',
   CANCELADA: 'Cancelada',
+  // Fase 2.5 (assinatura eletrônica) — faltavam aqui; sem isso o documento exibia o valor
+  // bruto do enum ("EM_ASSINATURA"/"CONTRATO_GERADO") em vez de um rótulo em português
+  // (achado real ao inspecionar visualmente a capa da proposta EXTERNA gerada na Fase 3.10).
+  EM_ASSINATURA: 'Em Assinatura',
+  ASSINADA: 'Assinada',
+  CONTRATO_GERADO: 'Contrato Gerado',
 };
 
 function fmtBRL(v) {
@@ -204,7 +210,8 @@ function buildProposalDocumentModel(proposta, opts = {}) {
     { n: 6, titulo: 'Dados da Praça', tipo: 'tabela', linhas: [
       ['Cidade', proposta.cidade_nome || '—'],
       ['UF', proposta.cidade_uf || '—'],
-      ['Versão de precificação', snapshot.pricing_version || '—'],
+      ...(proposta.pop_nome ? [['POP', proposta.pop_nome]] : []),
+      ...(modo === 'INTERNA' ? [['Versão de precificação', snapshot.pricing_version || '—']] : []),
     ] },
     { n: 7, titulo: 'Escopo da Rede Cedida', texto: `Infraestrutura óptica ativa disponibilizada na praça, com capacidade para até ${fmtInt(snapshot.clientes)} clientes finais distribuídos em ${fmtInt(snapshot.pons_count)} porta(s) PON.` },
     { n: 8, titulo: 'Modelo Comercial', tipo: 'tabela', linhas: [
@@ -262,9 +269,17 @@ function buildProposalDocumentModel(proposta, opts = {}) {
       : { n: 26, titulo: 'Status da Proposta', tipo: 'tabela', linhas: [
           ['Status', STATUS_LABELS[proposta.status] || proposta.status],
         ] },
-    { n: 27, titulo: 'Termos e Condições Gerais', texto: 'Esta proposta é um instrumento comercial preliminar e não substitui o contrato definitivo de cessão de rede, que detalhará SLA, penalidades, condições de reajuste e demais cláusulas jurídicas. Os valores aqui apresentados foram calculados pelo Pricing Engine da OptiMon a partir dos parâmetros de rede e comerciais informados.' },
-    { n: 28, titulo: 'Aceite e Assinaturas', tipo: 'assinatura' },
-  ];
+    ...(proposta.observacoes_comerciais
+      ? [{ n: 0, titulo: 'Observações Comerciais', texto: proposta.observacoes_comerciais }]
+      : []),
+    ...(proposta.proximos_passos
+      ? [{ n: 0, titulo: 'Próximos Passos', texto: proposta.proximos_passos }]
+      : []),
+    { n: 0, titulo: 'Termos e Condições Gerais', texto: 'Esta proposta é um instrumento comercial preliminar e não substitui o contrato definitivo de cessão de rede, que detalhará SLA, penalidades, condições de reajuste e demais cláusulas jurídicas. Os valores aqui apresentados foram calculados pelo Pricing Engine da OptiMon a partir dos parâmetros de rede e comerciais informados.' },
+    { n: 0, titulo: 'Aceite e Assinaturas', tipo: 'assinatura' },
+  ].map((s, i) => ({ ...s, n: i + 1 })); // seções condicionais (Observações/Próximos Passos) podem
+  // não existir — renumera sempre sequencialmente ao final pra nunca haver buraco na numeração
+  // impressa (seção 2.3 do prompt Fase 3.10: campos comerciais novos, exportáveis em PDF/DOCX).
 
   return {
     modo,

@@ -423,7 +423,7 @@ grep -q "capacityByPop:" /home/claude/optimon/web/src/lib/api.js && grep -q "ter
 
 echo ""
 echo "############################################################"
-echo "# CATEGORIA G — MINUTA DE 44 SEÇÕES (TESTE-43..49) #"
+echo "# CATEGORIA G — MINUTA DE 54 SEÇÕES (TESTE-43..49) #"
 echo "############################################################"
 
 DADOS_JSON=$(scalar "select app.contrato_documento_dados('$CONTRATO_ATIVO');")
@@ -431,35 +431,46 @@ echo "$DADOS_JSON" > /tmp/fase38_dados_contrato.json
 node -e "
 const { buildContractDocumentModel } = require('$ROOT/api/lib/contractDocumentModel.js');
 const dados = require('/tmp/fase38_dados_contrato.json');
-// Fase 3.9 (revisão das cláusulas contratuais): o baseline fixo mudou de 44 para 51
-// cláusulas (17 cláusulas novas na Fase 3.8 + 15 cláusulas/ajustes novos na Fase 3.9 —
-// ver contractDocumentModel.js). As tabelas de histórico/detalhe são OPCIONAIS — só
-// aparecem quando o contrato tem dado real nos arrays correspondentes (nunca contam
-// para o número fixo de cláusulas) — agora são 6, não mais 3: Reajustes, Ativos
-// Vinculados, Aditivos (já existiam) + Detalhamento da Infraestrutura Cedida, Rampa de
-// Maturação Aplicável, Registros de Devolução de Ativos (novas na Fase 3.9). Todas
-// zeradas aqui de propósito para testar o baseline FIXO de 51 — dado real de
+// Fase 3.9: baseline fixo 44->51. Fase 3.10 (Problema 1 — eliminação total dos
+// placeholders '[CLÁUSULA-MODELO — AGUARDANDO REDAÇÃO...]' + 3 cláusulas novas:
+// Implantação e Ativação, Responsabilidade por Danos, Capacidade Remanescente e Direito
+// de Cessão a Terceiros pela NICK): baseline fixo 51->52 (ver contractDocumentModel.js,
+// contagem de push() != pushTabela() confirmada em 52). As tabelas de histórico/detalhe
+// continuam OPCIONAIS (6: Detalhamento da Infraestrutura Cedida, Relação de Ativos
+// Vinculados, Rampa de Maturação Aplicável, Histórico de Reajustes Aplicados, Registros
+// de Devolução de Ativos, Aditivos Registrados) — nunca contam para o número fixo. Todas
+// zeradas aqui de propósito para testar o baseline FIXO de 52 — dado real de
 // contrato/parceiro/cidade/regras/clientes/solicitações continua vindo do banco, nunca
-// inventado.
+// inventado. s.length total = 1 (capa, n=0) + 52 (cláusulas fixas, n=1..52) + 1
+// (assinatura, n=53) = 54 — não é só a contagem de cláusulas (52), é o array inteiro.
 dados.aditivos = []; dados.reajustes = []; dados.ativos = [];
 dados.infraestrutura_detalhe = []; dados.rampa = []; dados.ativos_devolucao = [];
 const m = buildContractDocumentModel(dados);
 const s = m.sections;
-console.log('TESTE43=' + (s.length === 51 ? 'PASS' : 'FAIL') + ' len=' + s.length);
+console.log('TESTE43=' + (s.length === 54 ? 'PASS' : 'FAIL') + ' len=' + s.length);
 console.log('TESTE44=' + (/Assinatura/i.test(s[s.length-1].titulo) ? 'PASS' : 'FAIL') + ' last=' + JSON.stringify(s[s.length-1] && s[s.length-1].titulo) + ' lastN=' + (s[s.length-1] && s[s.length-1].n));
 const titulos = s.map(x => x.titulo);
 const unicos = new Set(titulos);
 console.log('TESTE45=' + (unicos.size === titulos.length ? 'PASS' : 'FAIL') + ' dup=' + (titulos.length - unicos.size));
+// Fase 3.10: TESTE-46 mudou de sentido — antes verificava que Força Maior FOSSE um
+// placeholder honesto (comportamento pré-3.10); agora verifica o oposto e mais forte —
+// que NENHUMA seção do documento final contém o marcador de placeholder eliminado
+// (checagem real, não presumida, dos dados de um contrato real via
+// app.contrato_documento_dados). Isto é o mesmo teste do requisito da Fase 3.10 (seção
+// 11 do prompt): documento final sem '[CLÁUSULA-MODELO' / 'AGUARDANDO REDAÇÃO'.
+const comPlaceholder = s.filter(x => typeof x.texto === 'string' && (x.texto.includes('CLÁUSULA-MODELO') || x.texto.includes('AGUARDANDO REDAÇÃO')));
+console.log('TESTE46=' + (comPlaceholder.length === 0 ? 'PASS' : 'FAIL') + ' restantes=' + JSON.stringify(comPlaceholder.map(x=>x.titulo)));
 const forcaMaior = s.find(x => /For.a Maior/i.test(x.titulo));
-console.log('TESTE46=' + (forcaMaior && typeof forcaMaior.texto === 'string' && forcaMaior.texto.startsWith('[CLÁUSULA-MODELO') ? 'PASS' : 'FAIL'));
+console.log('TESTE46B=' + (forcaMaior && typeof forcaMaior.texto === 'string' && forcaMaior.texto.length > 200 && !forcaMaior.texto.startsWith('[CLÁUSULA-MODELO') ? 'PASS' : 'FAIL') + ' len=' + (forcaMaior && forcaMaior.texto && forcaMaior.texto.length));
 const vigencia = s.find(x => /Vig.ncia e Renova/i.test(x.titulo));
 console.log('TESTE47=' + (vigencia && typeof vigencia.texto === 'string' && !vigencia.texto.startsWith('[CLÁUSULA-MODELO') ? 'PASS' : 'FAIL'));
 " > /tmp/fase38_cat_g.log 2>&1
 cat /tmp/fase38_cat_g.log
-grep -q "^TESTE43=PASS" /tmp/fase38_cat_g.log && pass "TESTE-43 buildContractDocumentModel produz exatamente 51 seções com dado real de contrato (baseline atualizado na Fase 3.9)" || fail "TESTE-43" "$(grep TESTE43 /tmp/fase38_cat_g.log)"
+grep -q "^TESTE43=PASS" /tmp/fase38_cat_g.log && pass "TESTE-43 buildContractDocumentModel produz exatamente 54 seções (52 cláusulas fixas + capa + assinatura) com dado real de contrato (baseline atualizado na Fase 3.10)" || fail "TESTE-43" "$(grep TESTE43 /tmp/fase38_cat_g.log)"
 grep -q "^TESTE44=PASS" /tmp/fase38_cat_g.log && pass "TESTE-44 a última seção continua sendo 'Assinatura' — as cláusulas novas foram intercaladas antes dela, não desorganizaram a ordem final" || fail "TESTE-44" "$(grep TESTE44 /tmp/fase38_cat_g.log)"
-grep -q "^TESTE45=PASS" /tmp/fase38_cat_g.log && pass "TESTE-45 nenhum título de seção duplicado entre as 51" || fail "TESTE-45" "$(grep TESTE45 /tmp/fase38_cat_g.log)"
-grep -q "^TESTE46=PASS" /tmp/fase38_cat_g.log && pass "TESTE-46 cláusula sem fonte de dado real (Força Maior) é honestamente marcada [CLÁUSULA-MODELO]" || fail "TESTE-46" "$(grep TESTE46 /tmp/fase38_cat_g.log)"
+grep -q "^TESTE45=PASS" /tmp/fase38_cat_g.log && pass "TESTE-45 nenhum título de seção duplicado entre as 52" || fail "TESTE-45" "$(grep TESTE45 /tmp/fase38_cat_g.log)"
+grep -q "^TESTE46=PASS" /tmp/fase38_cat_g.log && pass "TESTE-46 (Fase 3.10) documento final gerado a partir de dado real NÃO contém nenhum '[CLÁUSULA-MODELO'/'AGUARDANDO REDAÇÃO' — todos os placeholders foram eliminados" || fail "TESTE-46" "$(grep TESTE46 /tmp/fase38_cat_g.log)"
+grep -q "^TESTE46B=PASS" /tmp/fase38_cat_g.log && pass "TESTE-46B cláusula que antes era placeholder (Força Maior) agora tem redação substantiva real (>200 chars, não mais um stub)" || fail "TESTE-46B" "$(grep TESTE46B /tmp/fase38_cat_g.log)"
 grep -q "^TESTE47=PASS" /tmp/fase38_cat_g.log && pass "TESTE-47 cláusula com fonte de dado real (Vigência e Renovação) NÃO é um placeholder — texto definitivo" || fail "TESTE-47" "$(grep TESTE47 /tmp/fase38_cat_g.log)"
 
 R48=$(scalar "select (app.contrato_documento_dados('$CONTRATO_ATIVO') ? 'regras_solicitacoes');")
@@ -471,7 +482,7 @@ for FMT in PDF DOCX; do
   HTTP_CODE=$(curl -sS -o "$OUT_FILE" -w "%{http_code}" "$API/api/contracts/$CONTRATO_ATIVO/minuta?formato=$FMT" -H "Authorization: Bearer $TOK_ADMIN")
   SIZE=$(stat -c%s "$OUT_FILE" 2>/dev/null || echo 0)
   if [ "$HTTP_CODE" = "200" ] && [ "$SIZE" -gt 1000 ]; then
-    pass "TESTE-49-$FMT GET /api/contracts/:id/minuta?formato=$FMT gera o documento real (51+ seções) sem erro — $SIZE bytes"
+    pass "TESTE-49-$FMT GET /api/contracts/:id/minuta?formato=$FMT gera o documento real (54+ seções) sem erro — $SIZE bytes"
   else
     fail "TESTE-49-$FMT" "HTTP $HTTP_CODE, $SIZE bytes — ver $OUT_FILE"
   fi

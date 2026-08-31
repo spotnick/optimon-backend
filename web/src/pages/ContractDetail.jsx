@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { api, apiDownload, ApiError } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrencyFull } from '../components/charts/chartUtils';
@@ -356,6 +356,14 @@ export default function ContractDetail() {
           <div><strong>Prazo:</strong> {contract.prazo_meses} meses{contract.prazo_minimo_excecao ? ' (exceção ao mínimo de 48m)' : ''}</div>
           <div><strong>Início:</strong> {contract.data_inicio || '—'}</div>
           <div><strong>Fim previsto:</strong> {contract.data_fim_prevista || '—'}</div>
+          {/* Fase 3.10 (Problema 3, seção 3.4): vínculo bidirecional visível — o lado da
+              proposta mostra "Contrato vinculado: CTR-XXXX" (ver ProposalDetail.jsx). */}
+          {contract.proposta_origem && (
+            <div>
+              <strong>Proposta de origem:</strong>{' '}
+              <Link className="link-tab" to={`/propostas/${contract.proposta_origem.id}`}>{contract.proposta_origem.numero} →</Link>
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <button className="btn btn-primary" disabled={busy || contract.status === 'ATIVO'} onClick={handleActivate}>Ativar contrato</button>

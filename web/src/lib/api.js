@@ -141,6 +141,10 @@ export const api = {
     approve: (id, body = {}) => request(`/api/proposals/${id}/approve`, { method: 'POST', body }),
     reject: (id, body) => request(`/api/proposals/${id}/reject`, { method: 'POST', body }),
     changeStatus: (id, body) => request(`/api/proposals/${id}/status`, { method: 'POST', body }),
+    // Fase 3.10 (Problema 2, seção 2.1): edita capa/observações comerciais/próximos
+    // passos depois da criação — única rota que permite isso (POST / só aceita capa na
+    // criação).
+    update: (id, body) => request(`/api/proposals/${id}`, { method: 'PATCH', body }),
     // Export não passa por request() — é um download binário (PDF/DOCX) autenticado, não
     // JSON; ver ProposalDetail.jsx (busca com fetch() + Blob, mesmo padrão de token).
     exportPath: (id, formato, modo) => `/api/proposals/${id}/export?formato=${formato}${modo ? `&modo=${modo}` : ''}`,

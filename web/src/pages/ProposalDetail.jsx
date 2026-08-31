@@ -95,6 +95,7 @@ export default function ProposalDetail() {
   const [busy, setBusy] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [novoStatus, setNovoStatus] = useState(MUDAR_STATUS_OPCOES[0]);
+  const [confirmCriarContrato, setConfirmCriarContrato] = useState(false);
 
   const canApprove = role === 'DIRETOR' || role === 'ADMINISTRADOR';
 
@@ -107,7 +108,30 @@ export default function ProposalDetail() {
 
   useEffect(() => { load(); }, [load]);
 
-  const snapshot = proposta?.snapshot || (modo === 'EXTERNA' ? proposta : null);
+  // Fase 3.10 (Problema 2): BUG REAL corrigido — em modo EXTERNA, `proposta` vem de
+  // GET /:id/public (pricing_proposal_external_view), que devolve um objeto PLANO (sem
+  // chave `snapshot`) com campos comerciais já filtrados no backend — nunca `total_payable`
+  // (esse nome só existe no modo Interna). O código antigo fazia
+  // `proposta?.snapshot || (modo==='EXTERNA' ? proposta : null)`, então em modo Externa
+  // `snapshot` virava o objeto `proposta` inteiro — e `snapshot.total_payable` sempre
+  // `undefined`, quebrando o KPI "Total mensal" e as tabelas de Cenários/Projeções (que
+  // leem snapshot.total_payable/floor). A correção monta um objeto no MESMO formato que
+  // buildScenarios/buildProjections esperam, usando os campos reais devolvidos pela view
+  // externa — `total_payable` é sempre igual a `preco_proposto` desde a correção da Fase
+  // 3.01 (migration 20260922090000: "total_payable agora É preco_proposto"), então usar
+  // preco_proposto aqui é o valor correto, nunca um número inventado. `floor` fica
+  // ausente de propósito — a view externa nunca o expõe (dado interno de governança).
+  const snapshot = modo === 'EXTERNA'
+    ? (proposta ? {
+        clientes: proposta.clientes,
+        arpu: proposta.arpu,
+        faturamento: proposta.faturamento,
+        preco_proposto: proposta.preco_proposto,
+        total_payable: proposta.preco_proposto,
+        revenue_share_pct: proposta.revenue_share_pct,
+        floor: null,
+      } : null)
+    : (proposta?.snapshot || null);
   const prazoMeses = proposta?.prazo_meses || 48;
   const scenarios = useMemo(() => (snapshot ? buildScenarios(snapshot) : []), [snapshot]);
   const projections = useMemo(() => (snapshot ? buildProjections(snapshot, prazoMeses) : []), [snapshot, prazoMeses]);
@@ -167,6 +191,20 @@ export default function ProposalDetail() {
 
       {error && <div className="error-banner">{error}</div>}
 
+      {/* Fase 3.10 (Problema 2, seção 2.3): exportar PDF/DOCX precisa continuar disponível
+          nos DOIS modos — é assim que o comercial gera o documento para mandar ao
+          parceiro a partir do próprio modo Externa Parceiro, sem precisar voltar pro
+          Interna. As demais ações (aprovar/rejeitar/duplicar/criar contrato/mudar status)
+          são exclusivamente internas — nunca aparecem no modo Externa Parceiro. */}
+      {modo === 'EXTERNA' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <button className="btn btn-secondary" disabled={busy} onClick={() => handleExport('PDF')}>Exportar PDF (comercial)</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={() => handleExport('DOCX')}>Exportar DOCX (comercial)</button>
+        </div>
+      )}
+
+      {modo === 'INTERNA' && (
+      <>
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="section-title">Ações</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -180,13 +218,17 @@ export default function ProposalDetail() {
           {canApprove && !['ACEITA', 'RECUSADA', 'EXPIRADA', 'CANCELADA'].includes(status) && (
             <button className="btn btn-danger" disabled={busy} onClick={() => runAction(() => api.proposals.reject(id, { motivo }))}>Rejeitar</button>
           )}
-          {status === 'ASSINADA' && (
-            <button className="btn btn-primary" disabled={busy} onClick={() => runAction(async () => { const c = await api.contracts.generate({ proposta_id: id }); navigate(`/contratos/${c.id}`); })}>
-              Gerar Contrato
+          {/* Fase 3.10 (Problema 3): botão "CRIAR CONTRATO" — reaproveita 100% a mesma
+              regra de negócio já existente e testada (app.gerar_contrato_de_proposta só
+              aceita proposta ASSINADA, nunca ASSINADA->duplicar) — só ganhou rótulo novo e
+              uma confirmação com checklist legível antes de disparar. */}
+          {status === 'ASSINADA' && !proposta.contrato_id && (
+            <button className="btn btn-primary" disabled={busy} onClick={() => setConfirmCriarContrato(true)}>
+              CRIAR CONTRATO
             </button>
           )}
-          {status === 'CONTRATO_GERADO' && proposta.contrato_id && (
-            <Link className="btn btn-secondary" to={`/contratos/${proposta.contrato_id}`}>Ver Contrato →</Link>
+          {proposta.contrato_id && (
+            <Link className="btn btn-secondary" to={`/contratos/${proposta.contrato_id}`}>ABRIR CONTRATO →</Link>
           )}
           {['ACEITA', 'ASSINADA'].includes(status) && (
             <Link className="btn btn-secondary" to="/assinaturas">Ir para Assinaturas</Link>
@@ -204,8 +246,48 @@ export default function ProposalDetail() {
           <label>Motivo (obrigatório para rejeitar/cancelar; exigido em aprovação abaixo do piso)</label>
           <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Justificativa…" />
         </div>
+
+        {/* Fase 3.10 (Problema 3, seção 3.4): vínculo bidirecional visível — o lado do
+            contrato mostra "Proposta de origem: PROP-XXXX" (ver ContractDetail.jsx). */}
+        {proposta.contrato_id && (
+          <p style={{ marginTop: 12, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+            Contrato vinculado: <strong>{proposta.contrato_numero || proposta.contrato_id}</strong>
+          </p>
+        )}
       </div>
 
+      {confirmCriarContrato && (
+        <div className="card" style={{ marginBottom: 24, borderColor: 'var(--accent, #0e6e55)' }}>
+          <h2 className="section-title">Confirmar criação do contrato</h2>
+          <p style={{ marginBottom: 8 }}>Ao confirmar, o sistema irá, nesta ordem (seção 3.3 do fluxo Proposta → Contrato):</p>
+          <ul style={{ marginBottom: 12, paddingLeft: 20, lineHeight: 1.7 }}>
+            <li>Verificar que a proposta está ASSINADA e ainda sem contrato vinculado (bloqueado automaticamente pelo servidor caso contrário)</li>
+            <li>Verificar parceiro, cidade, prazo (mínimo contratual de 48 meses, salvo exceção autorizada) e dados econômicos da proposta</li>
+            <li>Criar o registro do contrato e vinculá-lo permanentemente a esta proposta (nos dois sentidos)</li>
+            <li>Transportar automaticamente os dados aprovados (parceiro, cidade, prazo, revenue share, mensalidade mínima) — nunca um contrato vazio</li>
+            <li>Disponibilizar a minuta (PDF/DOCX) imediatamente após a criação</li>
+            <li>Registrar o evento na auditoria (CONTRACT_GENERATE + CONTRACT_MINUTA_GENERATED)</li>
+          </ul>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() => {
+                setConfirmCriarContrato(false);
+                runAction(async () => { const c = await api.contracts.generate({ proposta_id: id }); navigate(`/contratos/${c.id}`); });
+              }}
+            >
+              Confirmar e criar contrato
+            </button>
+            <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirmCriarContrato(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+      </>
+      )}
+
+      {modo === 'INTERNA' && (
+      <>
       <div className="card-grid" style={{ marginBottom: 24 }}>
         <div className="card kpi-card">
           <div className="kpi-label">Preço proposto</div>
@@ -219,12 +301,10 @@ export default function ProposalDetail() {
           <div className="kpi-label">Total mensal (OptiMon)</div>
           <div className="kpi-value">{formatCurrencyFull(snapshot?.total_payable)}</div>
         </div>
-        {modo === 'INTERNA' && (
-          <div className="card kpi-card">
-            <div className="kpi-label">Piso (uso interno) <HelpTooltip text="Valor mínimo absoluto que a OptiMon aceita cobrar — nunca deve ser oferecido ao parceiro sem autorização formal." /></div>
-            <div className="kpi-value">{formatCurrencyFull(snapshot?.floor)}</div>
-          </div>
-        )}
+        <div className="card kpi-card">
+          <div className="kpi-label">Piso (uso interno) <HelpTooltip text="Valor mínimo absoluto que a OptiMon aceita cobrar — nunca deve ser oferecido ao parceiro sem autorização formal." /></div>
+          <div className="kpi-value">{formatCurrencyFull(snapshot?.floor)}</div>
+        </div>
         <div className="card kpi-card">
           <div className="kpi-label">Validade</div>
           <div className="kpi-value">{proposta.validade_dias} dias</div>
@@ -291,6 +371,119 @@ export default function ProposalDetail() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+      </>
+      )}
+
+      {/* Fase 3.10 (Problema 2): modo Externa Parceiro — documento comercial autônomo,
+          visualmente distinto da tela administrativa (identidade OptiMon já existente:
+          mesma logo/tipografia/cards — "não criar identidade visual nova"). Nunca mostra
+          margem/piso/preço recomendado/régua de negociação/parecer interno/governança/
+          auditoria — a própria view do backend (pricing_proposal_external_view) já não
+          devolve esses campos, então não há como este bloco vazar o que nunca recebeu. */}
+      {modo === 'EXTERNA' && (
+        <div className="card" style={{ marginBottom: 24, padding: 0, overflow: 'hidden', background: '#fff' }}>
+          <div style={{ padding: '28px 32px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+            <img src="/branding/optimon-logo-lockup.png" alt="OptiMon" style={{ height: 40 }} />
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proposta Comercial</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{numero} <span style={{ fontWeight: 400, fontSize: '0.8rem', color: 'var(--text-muted)' }}>V{proposta.numero_versao || 1}</span></div>
+            </div>
+          </div>
+
+          <div style={{ padding: '28px 32px' }}>
+            <div className="card-grid" style={{ marginBottom: 24 }}>
+              <div className="card kpi-card">
+                <div className="kpi-label">Parceiro</div>
+                <div className="kpi-value" style={{ fontSize: '1.1rem' }}>{parceiroNome}</div>
+                {proposta.parceiro_cargo_contato && <div className="kpi-sub">{proposta.parceiro_cargo_contato}</div>}
+              </div>
+              <div className="card kpi-card">
+                <div className="kpi-label">Cidade</div>
+                <div className="kpi-value" style={{ fontSize: '1.1rem' }}>{proposta.cidade_nome} — {proposta.cidade_uf}</div>
+                {proposta.pop_nome && <div className="kpi-sub">POP: {proposta.pop_nome}</div>}
+              </div>
+              <div className="card kpi-card">
+                <div className="kpi-label">Prazo contratual</div>
+                <div className="kpi-value" style={{ fontSize: '1.1rem' }}>{proposta.prazo_meses ? `${proposta.prazo_meses} meses` : '—'}</div>
+              </div>
+              <div className="card kpi-card">
+                <div className="kpi-label">Validade da proposta</div>
+                <div className="kpi-value" style={{ fontSize: '1.1rem' }}>{proposta.validade_dias} dias</div>
+              </div>
+            </div>
+
+            <h2 className="section-title">Infraestrutura e capacidade</h2>
+            <div className="card-grid" style={{ marginBottom: 24 }}>
+              <div className="card kpi-card">
+                <div className="kpi-label">Clientes (capacidade proposta)</div>
+                <div className="kpi-value">{snapshot?.clientes ? Number(snapshot.clientes).toLocaleString('pt-BR') : '—'}</div>
+              </div>
+              {proposta.pons_count != null && (
+                <div className="card kpi-card">
+                  <div className="kpi-label">Porta(s) PON</div>
+                  <div className="kpi-value">{proposta.pons_count}</div>
+                </div>
+              )}
+              <div className="card kpi-card">
+                <div className="kpi-label">ARPU de referência</div>
+                <div className="kpi-value">{formatCurrencyFull(snapshot?.arpu)}</div>
+              </div>
+            </div>
+
+            <h2 className="section-title">Condições comerciais</h2>
+            <div className="card-grid" style={{ marginBottom: 24 }}>
+              <div className="card kpi-card">
+                <div className="kpi-label">Mensalidade proposta</div>
+                <div className="kpi-value" style={{ fontSize: '1.3rem', color: 'var(--accent, #0e6e55)' }}>{formatCurrencyFull(snapshot?.preco_proposto)}</div>
+              </div>
+              {snapshot?.revenue_share_pct != null && (
+                <div className="card kpi-card">
+                  <div className="kpi-label">Revenue share</div>
+                  <div className="kpi-value">{(Number(snapshot.revenue_share_pct) * 100).toFixed(1)}%</div>
+                </div>
+              )}
+              <div className="card kpi-card">
+                <div className="kpi-label">Faturamento mensal estimado</div>
+                <div className="kpi-value">{formatCurrencyFull(snapshot?.faturamento)}</div>
+              </div>
+            </div>
+
+            {(proposta.observacoes_comerciais || proposta.proximos_passos) && (
+              <>
+                <h2 className="section-title">Observações e próximos passos</h2>
+                <div className="card-grid" style={{ marginBottom: 24, gridTemplateColumns: '1fr 1fr' }}>
+                  {proposta.observacoes_comerciais && (
+                    <div className="card">
+                      <div className="kpi-label" style={{ marginBottom: 8 }}>Observações comerciais</div>
+                      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{proposta.observacoes_comerciais}</p>
+                    </div>
+                  )}
+                  {proposta.proximos_passos && (
+                    <div className="card">
+                      <div className="kpi-label" style={{ marginBottom: 8 }}>Próximos passos</div>
+                      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{proposta.proximos_passos}</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className="card" style={{ background: 'var(--surface, #f7f8f9)' }}>
+              <h2 className="section-title" style={{ marginBottom: 8 }}>Aceite da proposta</h2>
+              <p style={{ margin: 0 }}>
+                Esta proposta é válida por {proposta.validade_dias} dias a partir de {new Date(proposta.criado_em).toLocaleDateString('pt-BR')}.
+                Para formalizar o aceite, entre em contato com o consultor comercial responsável — o próximo passo do fluxo é a assinatura eletrônica
+                e a geração automática do contrato a partir desta proposta.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ padding: '16px 32px', borderTop: '1px solid var(--border)', fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+            <span>OptiMon — documento comercial, gerado em {new Date().toLocaleDateString('pt-BR')}</span>
+            <span>{numero} · V{proposta.numero_versao || 1}</span>
           </div>
         </div>
       )}

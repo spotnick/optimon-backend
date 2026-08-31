@@ -115,6 +115,26 @@ router.get('/:id/public', async (req, res) => {
   return res.json(data);
 });
 
+// PATCH /api/proposals/:id — Fase 3.10 (Problema 2, seção 2.1): única rota que permite
+// editar parceiro_nome_capa/parceiro_cargo_contato/observacoes_comerciais/proximos_passos
+// depois da criação — não existia nenhuma antes desta fase (POST / só aceita os 2
+// primeiros campos, e só na criação). RLS decide quem pode (dono em RASCUNHO, ou
+// DIRETOR/ADMINISTRADOR) — a rota não faz checagem de perfil própria, mesmo padrão do
+// resto deste arquivo.
+router.patch('/:id', async (req, res) => {
+  const { parceiro_nome_capa, parceiro_cargo_contato, observacoes_comerciais, proximos_passos } = req.body || {};
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_proposal_update_display_fields', {
+    p_proposta_id: req.params.id,
+    p_parceiro_nome_capa: parceiro_nome_capa ?? null,
+    p_parceiro_cargo_contato: parceiro_cargo_contato ?? null,
+    p_observacoes_comerciais: observacoes_comerciais ?? null,
+    p_proximos_passos: proximos_passos ?? null,
+  });
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
 // GET /api/proposals/:id/versions — histórico de versões (V1/V2/V3..., seção 40).
 router.get('/:id/versions', async (req, res) => {
   const supabase = clientForRequest(req.userJwt);

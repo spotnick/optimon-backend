@@ -71,6 +71,19 @@ router.get('/:id', async (req, res) => {
   ]);
   if (cError) return handleError(res, cError);
   if (!contrato) return res.status(404).json({ error: `Contrato ${req.params.id} não encontrado.` });
+
+  // Fase 3.10 (Problema 3, seção 3.4): vínculo reverso "Proposta de origem: PROP-XXXX" —
+  // contrato.proposta_origem_id (coluna nova, migration 20261001090000) já vem no `...contrato`
+  // abaixo (select '*'), só falta resolver o número legível da proposta. Consulta simples e
+  // explícita (não usa embed do PostgREST) porque agora existem 2 FKs entre as tabelas
+  // (propostas_comerciais.contrato_id e contratos.proposta_origem_id) — embed ambíguo sem
+  // nomear a constraint, então preferimos uma query direta e sem ambiguidade.
+  let propostaOrigem = null;
+  if (contrato.proposta_origem_id) {
+    const { data } = await supabase.from('propostas_comerciais').select('id, numero, status').eq('id', contrato.proposta_origem_id).maybeSingle();
+    propostaOrigem = data || null;
+  }
+
   return res.json({
     ...contrato,
     pricing_config: pricingConfig || null,
@@ -83,6 +96,7 @@ router.get('/:id', async (req, res) => {
     ativos: ativos || [],
     regras_solicitacoes: regrasSolicitacoes || [],
     rescisao_config: rescisaoConfig.data || null,
+    proposta_origem: propostaOrigem,
   });
 });
 
