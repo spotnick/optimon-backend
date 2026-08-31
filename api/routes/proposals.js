@@ -188,8 +188,10 @@ router.post('/:id/reject', async (req, res) => {
   return res.json(data);
 });
 
-// POST /api/proposals/:id/status — demais transições (ENVIADA/EM_NEGOCIACAO/ACEITA/
-// EXPIRADA/CANCELADA — seção 36).
+// POST /api/proposals/:id/status — Fase 3.11: só EXPIRADA/CANCELADA passam a ser
+// aceitos por app.mudar_status_proposta (ver migration 20261002090000) — ENVIADA/
+// EM_NEGOCIACAO/ACEITA/RECUSADA agora têm rotas/funções próprias, reais, com validação
+// de servidor (nunca mais um "pulo" de status direto pelo operador interno).
 router.post('/:id/status', async (req, res) => {
   const { status, motivo } = req.body || {};
   if (!status) return res.status(400).json({ error: 'status é obrigatório.' });
@@ -198,6 +200,32 @@ router.post('/:id/status', async (req, res) => {
     p_proposta_id: req.params.id,
     p_novo_status: status,
     p_motivo: motivo ?? null,
+  });
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
+// POST /api/proposals/:id/send-to-partner — Fase 3.11 (seção 5/6): "Enviar ao Parceiro"
+// real. Gera token de acesso externo de alta entropia + expiração (validade_dias da
+// proposta) e transiciona para ENVIADA_AO_PARCEIRO. COMERCIAL/DIRETOR/ADMINISTRADOR —
+// checagem de perfil é feita dentro de app.enviar_proposta_parceiro (SECURITY DEFINER),
+// não aqui (mesmo padrão do resto do arquivo).
+router.post('/:id/send-to-partner', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_proposal_send_to_partner', {
+    p_proposta_id: req.params.id,
+  });
+  if (error) return handleError(res, error);
+  return res.json(data);
+});
+
+// GET /api/proposals/:id/historico — Fase 3.11 (seção 23): "Histórico da Negociação",
+// derivado direto da tabela de auditoria real (proposta + contrato vinculado, quando
+// existir) — nunca uma tabela paralela que pode divergir da auditoria.
+router.get('/:id/historico', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_proposal_historico', {
+    p_proposta_id: req.params.id,
   });
   if (error) return handleError(res, error);
   return res.json(data);

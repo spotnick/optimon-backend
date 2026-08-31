@@ -19,6 +19,7 @@ const citiesRoutes = require('./routes/cities');
 const infraRoutes = require('./routes/infra');
 const simulationsRoutes = require('./routes/simulations');
 const proposalsRoutes = require('./routes/proposals');
+const proposalsExternalRoutes = require('./routes/proposalsExternal');
 const partnersRoutes = require('./routes/partners');
 const auditRoutes = require('./routes/audit');
 const usersRoutes = require('./routes/users');
@@ -65,6 +66,14 @@ app.use(
     exposedHeaders: ['Content-Disposition'],
   })
 );
+
+// Fase 3.11 (seções 5-9): área externa do parceiro — proposta por token, aceite,
+// recusa. Igual ao webhook de assinatura, é chamada por quem NÃO está logado no
+// OptiMon (o parceiro, de fora), então precisa ficar ANTES da linha
+// `app.use('/api/proposals', requireAuth, ...)` abaixo — senão o middleware de auth
+// bloquearia antes mesmo de chegar aqui. A credencial aqui é o token opaco da URL,
+// nunca um JWT (ver api/routes/proposalsExternal.js).
+app.use('/api/proposals/external', proposalsExternalRoutes);
 
 // Toda rota de negócio exige um usuário autenticado — nunca anônimo, nunca service_role
 // (seção 33/53). RBAC/RLS de verdade acontecem no Postgres; esta API só encaminha o JWT.

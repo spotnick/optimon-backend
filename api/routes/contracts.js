@@ -342,8 +342,20 @@ router.get('/:id/minuta', async (req, res) => {
   }
 });
 
-// POST /api/contracts/generate — "GERAR CONTRATO" (seção 32-33). Nunca
-// inventa cláusula — só preenche dados a partir da proposta já ASSINADA.
+// GET /api/contracts/:id/assinatura-status — Fase 3.11 (seção 17): resumo do envelope
+// de assinatura ICP-Brasil do CONTRATO (signatários + status) para a seção "Assinatura
+// eletrônica" da tela do contrato — reaproveita 100% o motor de assinatura da Fase 2.5
+// (signature_envelopes/signature_signers), nenhuma tabela/lógica de assinatura nova.
+router.get('/:id/assinatura-status', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_contrato_assinatura_status', { p_contrato_id: req.params.id });
+  if (error) return handleError(res, error);
+  return res.json(data || null);
+});
+
+// POST /api/contracts/generate — "GERAR CONTRATO" (seção 32-33). Fase 3.11 (seção 6):
+// gate agora exige a proposta em ACEITA_PELO_PARCEIRO (nunca mais ASSINADA — aceite do
+// parceiro é o critério de consentimento real, não a assinatura da proposta em si).
 router.post('/generate', async (req, res) => {
   const { proposta_id, prazo_minimo_excecao, motivo_excecao_prazo } = req.body || {};
   if (!proposta_id) return res.status(400).json({ error: 'proposta_id é obrigatório.' });

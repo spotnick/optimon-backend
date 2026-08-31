@@ -96,6 +96,9 @@ export default function Dashboard() {
         <Kpi label="Contratos ativos" value={resumo ? resumo.contratos_ativos : '—'} />
         <Kpi label="Propostas abertas" value={resumo ? resumo.propostas_abertas : '—'} sub="todo status não terminal" />
         <Kpi label="Propostas aprovadas" value={resumo ? resumo.propostas_aprovadas : '—'} />
+        {/* Fase 3.11 (seção 24): visibilidade real do fluxo com o parceiro. */}
+        <Kpi label="Aguardando o parceiro" value={resumo ? resumo.propostas_aguardando_aceite_parceiro : '—'} sub="enviadas ou visualizadas, sem resposta ainda" />
+        <Kpi label="Aceitas, aguardando contrato" value={resumo ? resumo.propostas_aceitas_aguardando_contrato : '—'} sub="aceite do parceiro confirmado" />
         <Kpi label="Assinaturas pendentes" value={resumo ? resumo.assinaturas_pendentes : '—'} sub="envelopes em andamento" />
         <Kpi label="Contratos aguardando assinatura" value={resumo ? resumo.contratos_aguardando_assinatura : '—'} />
         <Kpi label="Contratos próx. do vencimento" value={resumo ? resumo.contratos_proximos_vencimento : '—'} sub="nos próximos 60 dias" />

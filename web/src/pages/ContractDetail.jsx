@@ -79,11 +79,73 @@ export default function ContractDetail() {
   // nunca tinha sido chamada por nenhuma tela até agora.
   const [multiPop, setMultiPop] = useState(null);
 
+  // Fase 3.11 (seção 17): "Assinatura eletrônica" do CONTRATO — reaproveita 100% o
+  // motor de assinatura já existente desde a Fase 2.5 (mesmas rotas de
+  // api.signatures.* usadas pela tela Signatures.jsx), nunca uma engenharia de
+  // assinatura nova. app.ativar_contrato já exige um envelope tipo_documento=CONTRATO
+  // com status VALIDADO — esta seção é o que estava faltando para o operador conseguir
+  // chegar lá pela própria tela do contrato, sem precisar ir em Assinaturas manualmente.
+  const [assinatura, setAssinatura] = useState(null);
+  const [providers, setProviders] = useState([]);
+  const [criandoEnvelope, setCriandoEnvelope] = useState(false);
+  const [novoSigner, setNovoSigner] = useState({ nome: '', email: '', papel: 'REPRESENTANTE_NICK', ordem: 1 });
+
+  function loadAssinatura() {
+    api.contracts.assinaturaStatus(id).then(setAssinatura).catch(() => setAssinatura(null));
+  }
+
   function load() {
     api.contracts.get(id).then(setContract).catch((err) => setError(err.message));
     api.pricing.capacityByPop(id).then(setMultiPop).catch(() => setMultiPop(null));
+    loadAssinatura();
+    api.signatures.providers().then(setProviders).catch(() => setProviders([]));
   }
   useEffect(load, [id]);
+
+  async function handleCriarEnvelopeContrato() {
+    if (!providers[0]) { setActionError('Nenhum provedor de assinatura configurado (ver Configurações > Assinatura).'); return; }
+    setActionError(null); setBusy(true); setCriandoEnvelope(true);
+    try {
+      const formData = new FormData();
+      formData.append('tipo_documento', 'CONTRATO');
+      formData.append('provider_id', providers[0].id);
+      formData.append('contrato_id', id);
+      const envelope = await api.signatures.createEnvelope(formData);
+      setAssinatura({ envelope_id: envelope.id, envelope_status: envelope.status, signatarios: [] });
+      loadAssinatura();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao criar envelope de assinatura do contrato.');
+    } finally {
+      setBusy(false); setCriandoEnvelope(false);
+    }
+  }
+
+  async function handleAddSignerContrato(e) {
+    e.preventDefault();
+    setActionError(null); setBusy(true);
+    try {
+      await api.signatures.addSigner(assinatura.envelope_id, novoSigner);
+      setNovoSigner({ nome: '', email: '', papel: 'REPRESENTANTE_PROPONENTE', ordem: (novoSigner.ordem || 1) + 1 });
+      loadAssinatura();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao adicionar signatário.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleEnviarParaAssinaturaContrato() {
+    setActionError(null); setBusy(true);
+    try {
+      await api.signatures.send(assinatura.envelope_id);
+      setActionMsg('Envelope enviado ao provedor de assinatura.');
+      loadAssinatura();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao enviar para assinatura.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleExportMinuta(formato) {
     setActionError(null); setBusy(true);
@@ -395,6 +457,70 @@ export default function ContractDetail() {
             <div className="field"><label>Motivo *</label><input required value={terminateForm.motivo} onChange={(e) => setTerminateForm({ ...terminateForm, motivo: e.target.value })} /></div>
             <button type="submit" className="btn btn-danger" disabled={busy}>Confirmar</button>
           </form>
+        )}
+      </div>
+
+      {/* Fase 3.11 (seção 17): Assinatura eletrônica do CONTRATO — reaproveita o motor
+          ICP-Brasil da Fase 2.5 (mesmo signature_envelopes/signature_signers, mesmo
+          provedor). app.ativar_contrato só libera "Ativar contrato" acima quando existir
+          aqui um envelope tipo_documento=CONTRATO com status VALIDADO. */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h2 className="section-title">Assinatura eletrônica do contrato</h2>
+        {!assinatura?.envelope_id ? (
+          <>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>
+              Nenhum envelope de assinatura foi criado para este contrato ainda. A minuta (PDF) é gerada
+              automaticamente ao criar o envelope — mesmo motor já usado para a minuta acima.
+            </p>
+            <button className="btn btn-primary" disabled={busy || criandoEnvelope || !providers[0]} onClick={handleCriarEnvelopeContrato}>
+              Criar envelope e enviar para assinatura
+            </button>
+            {!providers[0] && <p style={{ fontSize: 12, color: 'var(--text-danger, #b42828)', marginTop: 6 }}>Nenhum provedor de assinatura configurado.</p>}
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, marginBottom: 8 }}>
+              Envelope: <Link className="link-tab" to={`/assinaturas/${assinatura.envelope_id}`}>{assinatura.envelope_id.slice(0, 8)}…</Link>
+              {' — '}status: <span className="badge">{assinatura.envelope_status}</span>
+              {assinatura.documento_assinado_disponivel && <span> · documento assinado validado ✓</span>}
+            </p>
+            {assinatura.signatarios?.length > 0 && (
+              <div className="table-scroll" style={{ marginBottom: 12 }}>
+                <table>
+                  <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th>Assinado em</th></tr></thead>
+                  <tbody>
+                    {assinatura.signatarios.map((s) => (
+                      <tr key={s.id}>
+                        <td>{s.nome}</td>
+                        <td>{s.papel}</td>
+                        <td>{s.status}</td>
+                        <td>{s.assinado_em ? new Date(s.assinado_em).toLocaleString('pt-BR') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {assinatura.envelope_status === 'CRIADO' && (
+              <>
+                <form onSubmit={handleAddSignerContrato} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 2fr auto', gap: 12, alignItems: 'flex-end', marginBottom: 12 }}>
+                  <div className="field"><label>Nome</label><input required value={novoSigner.nome} onChange={(e) => setNovoSigner({ ...novoSigner, nome: e.target.value })} /></div>
+                  <div className="field"><label>E-mail</label><input required type="email" value={novoSigner.email} onChange={(e) => setNovoSigner({ ...novoSigner, email: e.target.value })} /></div>
+                  <div className="field">
+                    <label>Papel</label>
+                    <select value={novoSigner.papel} onChange={(e) => setNovoSigner({ ...novoSigner, papel: e.target.value })}>
+                      <option value="REPRESENTANTE_NICK">Representante NICK</option>
+                      <option value="REPRESENTANTE_PROPONENTE">Representante do Parceiro</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="btn btn-secondary" disabled={busy}>Adicionar signatário</button>
+                </form>
+                <button className="btn btn-primary" disabled={busy || !assinatura.signatarios?.length} onClick={handleEnviarParaAssinaturaContrato}>
+                  Enviar para assinatura
+                </button>
+              </>
+            )}
+          </>
         )}
       </div>
 

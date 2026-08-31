@@ -58,6 +58,28 @@ async function request(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
+// Fase 3.11: variante de request() para a área externa do parceiro — nunca busca
+// sessão Supabase nem manda Authorization (o parceiro não está logado). Mesmo
+// tratamento de erro/JSON de request(), só sem o token.
+async function requestExternal(path, { method = 'GET', body } = {}) {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  let payload = null;
+  try {
+    payload = await res.json();
+  } catch {
+    // resposta sem corpo JSON — segue com payload null.
+  }
+  if (!res.ok) {
+    throw new ApiError(payload?.error || `Erro ${res.status} ao chamar ${path}.`, res.status, payload);
+  }
+  return payload;
+}
+
 export const api = {
   health: () => request('/health'),
   version: () => request('/api/version'),
@@ -148,6 +170,20 @@ export const api = {
     // Export não passa por request() — é um download binário (PDF/DOCX) autenticado, não
     // JSON; ver ProposalDetail.jsx (busca com fetch() + Blob, mesmo padrão de token).
     exportPath: (id, formato, modo) => `/api/proposals/${id}/export?formato=${formato}${modo ? `&modo=${modo}` : ''}`,
+    // Fase 3.11 (seções 5-9): "Enviar ao Parceiro" (gera token+link real) e o
+    // "Histórico da Negociação" (linha do tempo derivada da auditoria real).
+    sendToPartner: (id) => request(`/api/proposals/${id}/send-to-partner`, { method: 'POST' }),
+    historico: (id) => request(`/api/proposals/${id}/historico`),
+  },
+
+  // Fase 3.11 (seções 5-9): área externa do parceiro — SEM autenticação (o parceiro
+  // nunca faz login no OptiMon). Credencial é o token opaco da URL, nunca um JWT — por
+  // isso usa `requestExternal` (nunca `request`, que sempre anexa o Authorization do
+  // usuário logado da NICK). Mapeia 1:1 as 3 rotas de api/routes/proposalsExternal.js.
+  proposalsExternal: {
+    get: (token) => requestExternal(`/api/proposals/external/${token}`),
+    accept: (token, body) => requestExternal(`/api/proposals/external/${token}/accept`, { method: 'POST', body }),
+    decline: (token, body) => requestExternal(`/api/proposals/external/${token}/decline`, { method: 'POST', body }),
   },
 
   partners: {
@@ -214,6 +250,8 @@ export const api = {
     get: (id) => request(`/api/contracts/${id}`),
     generate: (body) => request('/api/contracts/generate', { method: 'POST', body }),
     activate: (id) => request(`/api/contracts/${id}/activate`, { method: 'POST' }),
+    // Fase 3.11 (seção 17): status do envelope de assinatura ICP-Brasil do contrato.
+    assinaturaStatus: (id) => request(`/api/contracts/${id}/assinatura-status`),
     // Fase 3.8 (item 3.8-14): encerrar (fim natural) ou rescindir (antecipado) — motivo
     // sempre obrigatório (ver app.encerrar_contrato).
     terminate: (id, body) => request(`/api/contracts/${id}/terminate`, { method: 'POST', body }),

@@ -21,6 +21,7 @@ const multer = require('multer');
 const { clientForRequest, anonClient } = require('../lib/supabaseClient');
 const { buildProvider } = require('../lib/signatureProvider');
 const { generateProposalPdf } = require('../lib/pdfProposal');
+const { generateContratoPdf } = require('../lib/pdfContrato');
 
 const router = express.Router();
 const webhookRouter = express.Router();
@@ -205,12 +206,14 @@ router.get('/envelopes/:id', async (req, res) => {
 
 // POST /api/signatures/envelopes — cria o envelope (createEnvelope, seção 5).
 // tipo_documento=PROPOSTA gera o PDF automaticamente pelo motor já existente
-// (api/lib/pdfProposal.js). CONTRATO/ADITIVO exigem um PDF enviado por upload
-// (multipart, campo `arquivo`) — LIMITAÇÃO EXPLÍCITA desta entrega: o motor de
-// geração de PDF de contrato/aditivo a partir de modelos_contrato não foi
-// construído nesta fase (só o preenchimento automático dos DADOS do contrato,
-// seção 32 — a renderização em documento é trabalho futuro, documentado no
-// relatório final, nunca escondida).
+// (api/lib/pdfProposal.js). Fase 3.11 (seção 17): tipo_documento=CONTRATO agora
+// TAMBÉM gera o PDF automaticamente — reaproveitando sem alteração o motor de
+// minuta já construído nas Fases 3.9/3.10 (api/lib/pdfContrato.js +
+// app.contrato_documento_dados/pricing_contrato_documento_dados, o mesmo usado por
+// GET /api/contracts/:id/minuta). A limitação documentada na Fase 2.5 ("motor de
+// PDF de contrato não construído nesta fase") ficou desatualizada — corrigida
+// aqui. ADITIVO continua exigindo upload manual (nenhum motor de documento de
+// aditivo existe ainda — não inventado nesta fase, fora do escopo 3.11).
 router.post('/envelopes', upload.single('arquivo'), async (req, res) => {
   const { tipo_documento, provider_id, proposta_id, contrato_id, aditivo_id } = req.body || {};
   if (!tipo_documento || !provider_id) {
@@ -232,8 +235,15 @@ router.post('/envelopes', upload.single('arquivo'), async (req, res) => {
     documentBuffer = await generateProposalPdf(proposta, { modo: 'EXTERNA' });
     fileName = `proposta_${proposta_id}.pdf`;
   }
+  if (!documentBuffer && tipo_documento === 'CONTRATO' && contrato_id) {
+    const { data: dadosContrato, error: contratoError } = await supabase.rpc('pricing_contrato_documento_dados', { p_contrato_id: contrato_id });
+    if (contratoError) return handleError(res, contratoError);
+    if (!dadosContrato) return res.status(404).json({ error: `Contrato ${contrato_id} não encontrado.` });
+    documentBuffer = await generateContratoPdf(dadosContrato);
+    fileName = `contrato_${contrato_id}.pdf`;
+  }
   if (!documentBuffer) {
-    return res.status(400).json({ error: 'Nenhum documento disponível: envie um PDF via multipart (campo "arquivo"), ou informe proposta_id para tipo_documento=PROPOSTA (gerado automaticamente).' });
+    return res.status(400).json({ error: 'Nenhum documento disponível: envie um PDF via multipart (campo "arquivo"), ou informe proposta_id/contrato_id para tipo_documento=PROPOSTA/CONTRATO (gerados automaticamente).' });
   }
 
   let providerResult;

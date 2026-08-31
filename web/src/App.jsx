@@ -24,6 +24,7 @@ import SignatureDetail from './pages/SignatureDetail';
 import SignatureSettings from './pages/SignatureSettings';
 import Reports from './pages/Reports';
 import Alerts from './pages/Alerts';
+import PartnerExternalProposal from './pages/PartnerExternalProposal';
 
 export default function App() {
   return (
@@ -34,6 +35,11 @@ export default function App() {
           quem chega aqui só tem a sessão temporária que o próprio link do Supabase Auth
           gerou, nunca uma senha definida ainda. */}
       <Route path="/definir-senha" element={<DefinirSenha />} />
+      {/* Fase 3.11 (seções 5-9): área externa REAL do parceiro — SEM login, fora de
+          <ProtectedRoute> de propósito (o parceiro nunca tem usuário/senha no OptiMon).
+          Autenticação é o próprio token de alta entropia na URL, validado no servidor a
+          cada chamada (ver web/src/pages/PartnerExternalProposal.jsx). */}
+      <Route path="/parceiro/proposta/:token" element={<PartnerExternalProposal />} />
       <Route
         element={
           <ProtectedRoute>
