@@ -4,6 +4,16 @@
 // (retângulos/linhas/texto) diretamente no documento. Nunca é "imprimir a tela do
 // navegador" — o documento é montado programaticamente a partir do modelo de 28 seções
 // (proposalDocumentModel.js), a mesma fonte usada pelo DOCX.
+//
+// Fase 3.11.6 (seção 5/6): generateProposalPdf aceita um 2º argumento opcional
+// opts.certificado — MESMO padrão de api/lib/pdfContrato.js (opts.certificado para o
+// PDF final do contrato assinado, Fase 3.11.5) — nunca um 2º motor de PDF de proposta.
+// Quando presente, troca a capa/rodapé de "PROPOSTA"/"MINUTA" para "PROPOSTA ACEITA
+// ELETRONICAMENTE" e acrescenta uma página de CERTIFICADO DE ACEITE ELETRÔNICO (nome/
+// CPF confirmados, e-mail, papel, IP, data/hora, método, hash — dados vindos de
+// app.proposta_aceite_certificado_dados_por_token, nunca inventados; o código OTP em si
+// NUNCA aparece). Sem opts.certificado, o comportamento é idêntico ao de antes (usado
+// para a minuta original, pré-aceite).
 
 const path = require('path');
 const fs = require('fs');
@@ -32,9 +42,10 @@ const ACCENT_LIGHT = '#E1F6FA';
 const LINE = '#d8dee5';
 const PAGE_MARGIN = 50;
 
-function drawHeaderFooter(doc, model, pageIndex, pageCount) {
+function drawHeaderFooter(doc, model, pageIndex, pageCount, opts = {}) {
   const F = doc._brandFonts;
   const { width, height } = doc.page;
+  const aceita = Boolean(opts.certificado);
   // Header
   let textStartX = PAGE_MARGIN;
   if (LOGO_ICON_AVAILABLE) {
@@ -44,9 +55,9 @@ function drawHeaderFooter(doc, model, pageIndex, pageCount) {
   doc.fontSize(8).fillColor(MUTED).font(F.bodySemibold)
     .text('OPTIMON', textStartX, 24, { continued: true })
     .font(F.body).fillColor(MUTED)
-    .text(`  |  Proposta Comercial ${model.numero || ''} (V${model.numero_versao || 1})`, { continued: false });
-  doc.fontSize(8).fillColor(MUTED).font(F.bodySemibold)
-    .text(model.modo === 'INTERNA' ? 'USO INTERNO' : 'PROPOSTA', width - PAGE_MARGIN - 150, 24, { width: 150, align: 'right' });
+    .text(`  |  ${aceita ? 'Proposta Aceita' : 'Proposta Comercial'} ${model.numero || ''} (V${model.numero_versao || 1})`, { continued: false });
+  doc.fontSize(8).fillColor(aceita ? '#0e6e55' : MUTED).font(F.bodySemibold)
+    .text(aceita ? 'ACEITA ELETRONICAMENTE' : (model.modo === 'INTERNA' ? 'USO INTERNO' : 'PROPOSTA'), width - PAGE_MARGIN - 150, 24, { width: 150, align: 'right' });
   doc.moveTo(PAGE_MARGIN, 38).lineTo(width - PAGE_MARGIN, 38).strokeColor(LINE).lineWidth(0.5).stroke();
   // Footer
   doc.moveTo(PAGE_MARGIN, height - 40).lineTo(width - PAGE_MARGIN, height - 40).strokeColor(LINE).lineWidth(0.5).stroke();
@@ -63,6 +74,16 @@ function drawHeaderFooter(doc, model, pageIndex, pageCount) {
     .text(`Gerado em ${fmtDate(new Date().toISOString())} — válido até ${fmtDate(model.data_validade)}`, PAGE_MARGIN, height - 30, { width: width - 2 * PAGE_MARGIN - 80 });
   doc.font(F.mono).text(`Página ${pageIndex + 1} de ${pageCount}`, width - PAGE_MARGIN - 80, height - 30, { width: 80, align: 'right' });
   doc.page.margins.bottom = savedBottom;
+}
+
+// Fase 3.11.6: no certificado de aceite, a HORA importa (evidência, não só a data) —
+// fmtDate (proposalDocumentModel.js) só formata dia/mês/ano; mesmo helper local já
+// usado em pdfContrato.js para o mesmo propósito, nunca duplicando fmtDate em si.
+function fmtDateTime(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
 }
 
 function ensureSpace(doc, needed) {
@@ -139,11 +160,12 @@ function drawBarChart(doc, chart) {
   doc.moveDown(0.5);
 }
 
-function renderCoverPage(doc, model) {
+function renderCoverPage(doc, model, opts = {}) {
   const F = doc._brandFonts;
   const { width, height } = doc.page;
+  const aceita = Boolean(opts.certificado);
   doc.rect(0, 0, width, height).fill('#0F172A');
-  doc.rect(0, height - 180, width, 180).fill('#0A3654');
+  doc.rect(0, height - 180, width, 180).fill(aceita ? '#0A3D2E' : '#0A3654');
 
   if (LOGO_DARK_AVAILABLE) {
     // Fase 3.9 (validação final): proporção real do asset oficial é 681x195 (~3.5:1),
@@ -156,8 +178,13 @@ function renderCoverPage(doc, model) {
   }
   doc.fontSize(12).font(F.body).fillColor('#B8E8DF').text('Infraestrutura de Rede Óptica — Cessão de Rede', PAGE_MARGIN, 152);
 
-  doc.fontSize(26).font(F.display).fillColor('#ffffff').text('Proposta Comercial', PAGE_MARGIN, 260, { width: width - 2 * PAGE_MARGIN });
-  doc.fontSize(13).font(F.body).fillColor('#B8E8DF').text(model.modo === 'INTERNA' ? 'Documento de uso interno' : 'Documento para o parceiro', PAGE_MARGIN, 300);
+  doc.fontSize(26).font(F.display).fillColor('#ffffff').text(aceita ? 'Proposta Aceita Eletronicamente' : 'Proposta Comercial', PAGE_MARGIN, 260, { width: width - 2 * PAGE_MARGIN });
+  doc.fontSize(13).font(F.body).fillColor('#B8E8DF').text(
+    aceita
+      ? 'Aceite formal confirmado pelo parceiro — ver CERTIFICADO DE ACEITE ELETRÔNICO ao final deste documento.'
+      : (model.modo === 'INTERNA' ? 'Documento de uso interno' : 'Documento para o parceiro'),
+    PAGE_MARGIN, 300, { width: width - 2 * PAGE_MARGIN }
+  );
 
   doc.fontSize(11).fillColor('#ffffff').font(F.bodySemibold);
   const infoY = 360;
@@ -167,7 +194,7 @@ function renderCoverPage(doc, model) {
     ['Parceiro', model.parceiro_nome],
     ['Data', fmtDate(model.criado_em)],
     ['Validade', `${model.validade_dias} dias (até ${fmtDate(model.data_validade)})`],
-    ['Status', model.status_label],
+    ['Status', aceita ? 'ACEITA PELO PARCEIRO' : model.status_label],
   ];
   let y = infoY;
   info.forEach(([label, value]) => {
@@ -179,6 +206,49 @@ function renderCoverPage(doc, model) {
   doc.fontSize(8).font(F.body).fillColor('#7FD4C1').text('Documento gerado automaticamente pelo OptiMon Pricing Engine.', PAGE_MARGIN, height - 30);
 }
 
+// Fase 3.11.6 (seção 6): CERTIFICADO DE ACEITE ELETRÔNICO da proposta — mesmo padrão
+// visual/estrutural de pdfContrato.js:renderCertificatePage, com os campos exatos
+// pedidos: nome do responsável, CPF/CNPJ informado, e-mail, papel, data/hora, IP,
+// método de validação, identificador do aceite, hash do documento (quando disponível),
+// identificador da proposta. NUNCA exibe o código OTP em si (nem os dados do
+// certificado o carregam — otp_hash nunca sai do banco por nenhuma RPC externa).
+function renderCertificatePage(doc, model, certificado) {
+  const F = doc._brandFonts;
+  doc.x = PAGE_MARGIN;
+  doc.moveDown(0.6);
+  doc.fontSize(9).fillColor(ACCENT).font(F.displayBold).text('CERTIFICADO', { continued: false });
+  doc.fontSize(14).fillColor(INK).font(F.display).text('Certificado de Aceite Eletrônico');
+  doc.moveTo(doc.x, doc.y + 2).lineTo(doc.page.width - PAGE_MARGIN, doc.y + 2).strokeColor(ACCENT).lineWidth(1.2).stroke();
+  doc.moveDown(0.8);
+
+  doc.fontSize(9.5).font(F.body).fillColor(INK).text(
+    'Este é um certificado de ACEITE ELETRÔNICO desta proposta comercial, gerado pelo OptiMon — evidenciado por um link único enviado ao e-mail cadastrado do representante do parceiro, seguido de um código de confirmação (OTP) de 6 dígitos enviado ao mesmo e-mail, com CPF, IP e data/hora registrados no momento da confirmação. NÃO é uma assinatura ICP-Brasil qualificada validada por Autoridade Certificadora.',
+    { align: 'justify' }
+  );
+  doc.moveDown(0.6);
+
+  const campos = [
+    ['Identificador da proposta', certificado.proposta_id || '—'],
+    ['Número', certificado.numero || '—'],
+    ['Nome do responsável', certificado.aceite_nome || '—'],
+    ['CPF/CNPJ informado', certificado.aceite_documento || '—'],
+    ['Cargo/função', certificado.aceite_cargo || '—'],
+    ['E-mail', certificado.aceite_email || '—'],
+    ['Papel', 'Representante do parceiro'],
+    ['Data/hora do aceite', fmtDateTime(certificado.aceite_em)],
+    ['Endereço IP', certificado.aceite_ip || '—'],
+    ['Navegador/dispositivo', certificado.aceite_user_agent || '—'],
+    ['Método de validação', certificado.aceite_metodo || '—'],
+    ['Versão dos termos', certificado.aceite_versao_termo || '—'],
+    ['Identificador do aceite', certificado.aceite_token_hash || '—'],
+    ['Hash do documento (proposta)', certificado.aceite_hash_proposta || '—'],
+  ];
+  campos.forEach(([label, value]) => {
+    ensureSpace(doc, 16);
+    doc.font(F.bodySemibold).fontSize(8.5).fillColor(MUTED).text(`${label}: `, { continued: true }).font(F.mono).fillColor(INK).text(String(value));
+  });
+}
+
 function renderSummary(doc, model) {
   const F = doc._brandFonts;
   sectionHeading(doc, 2, 'Sumário');
@@ -188,29 +258,34 @@ function renderSummary(doc, model) {
   });
 }
 
-function renderSignature(doc, model) {
+function renderSignature(doc, model, opts = {}) {
   const F = doc._brandFonts;
+  const aceita = Boolean(opts.certificado);
   doc.moveDown(1);
   ensureSpace(doc, 140);
   doc.fontSize(9.5).font(F.body).fillColor(INK).text(
-    'A assinatura abaixo (física ou digital) formaliza o aceite desta proposta pelas partes. Esta seção fica preparada para integração futura com aceite digital.'
+    aceita
+      ? 'Esta proposta foi aceita eletronicamente pelo parceiro — ver a página de CERTIFICADO DE ACEITE ELETRÔNICO ao final deste documento para os detalhes do aceite (nome, CPF informado, e-mail, IP e data/hora).'
+      : 'A assinatura abaixo (física ou digital) formaliza o aceite desta proposta pelas partes. Esta seção fica preparada para integração futura com aceite digital.'
   );
   doc.moveDown(3);
   const y = doc.y;
   doc.moveTo(PAGE_MARGIN, y).lineTo(PAGE_MARGIN + 220, y).strokeColor(LINE).stroke();
   doc.moveTo(doc.page.width - PAGE_MARGIN - 220, y).lineTo(doc.page.width - PAGE_MARGIN, y).strokeColor(LINE).stroke();
-  doc.fontSize(9).font(F.body).fillColor(MUTED).text('OptiMon', PAGE_MARGIN, y + 4);
-  doc.text(model.parceiro_nome, doc.page.width - PAGE_MARGIN - 220, y + 4, { width: 220, align: 'right' });
+  doc.fontSize(9).font(F.body).fillColor(MUTED).text(aceita ? 'OptiMon — proposta enviada' : 'OptiMon', PAGE_MARGIN, y + 4);
+  doc.text(aceita ? `${model.parceiro_nome} — aceitou eletronicamente` : model.parceiro_nome, doc.page.width - PAGE_MARGIN - 220, y + 4, { width: 220, align: 'right' });
+  doc.x = PAGE_MARGIN;
 }
 
 async function generateProposalPdf(proposta, opts = {}) {
   const model = buildProposalDocumentModel(proposta, opts);
+  const aceita = Boolean(opts.certificado);
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: PAGE_MARGIN, bufferPages: true, info: {
-      Title: `Proposta Comercial ${model.numero || ''}`,
+      Title: `${aceita ? 'Proposta Aceita' : 'Proposta Comercial'} ${model.numero || ''}`,
       Author: 'OptiMon',
-      Subject: `Proposta ${model.modo === 'INTERNA' ? 'Interna' : 'Externa'} — ${model.cidade_nome || ''}`,
+      Subject: `${aceita ? 'ACEITA ELETRONICAMENTE' : `Proposta ${model.modo === 'INTERNA' ? 'Interna' : 'Externa'}`} — ${model.cidade_nome || ''}`,
     } });
     // Fase 3.8 (item 3.8-07): registra Manrope/Inter/IBM Plex Mono neste documento
     // (fontes de marca) — todas as funções de desenho abaixo leem doc._brandFonts em
@@ -224,7 +299,7 @@ async function generateProposalPdf(proposta, opts = {}) {
     doc.on('error', reject);
 
     // 1) Capa
-    renderCoverPage(doc, model);
+    renderCoverPage(doc, model, opts);
 
     // 2) Sumário
     doc.addPage();
@@ -253,18 +328,25 @@ async function generateProposalPdf(proposta, opts = {}) {
       } else if (s.tipo === 'grafico') {
         drawBarChart(doc, s.grafico);
       } else if (s.tipo === 'assinatura') {
-        renderSignature(doc, model);
+        renderSignature(doc, model, opts);
       } else if (s.texto) {
         doc.fontSize(10).font(doc._brandFonts.body).fillColor(INK).text(s.texto, { align: 'justify' });
       }
     });
+
+    // Fase 3.11.6 (seção 6): página final de certificado, só quando opts.certificado
+    // vier preenchido — mesmo padrão de pdfContrato.js.
+    if (aceita) {
+      doc.addPage();
+      renderCertificatePage(doc, model, opts.certificado);
+    }
 
     // Header/footer em toda página (exceto a capa, página 0)
     const range = doc.bufferedPageRange();
     const pageCount = range.count;
     for (let i = 1; i < pageCount; i++) {
       doc.switchToPage(i);
-      drawHeaderFooter(doc, model, i, pageCount);
+      drawHeaderFooter(doc, model, i, pageCount, opts);
     }
 
     doc.end();

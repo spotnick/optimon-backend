@@ -5,11 +5,36 @@
 // desconto/governança — filtrada no banco, ver pricing_proposal_external_view).
 
 const express = require('express');
-const { clientForRequest } = require('../lib/supabaseClient');
+const { clientForRequest, anonClient } = require('../lib/supabaseClient');
 const { generateProposalPdf } = require('../lib/pdfProposal');
 const { generateProposalDocx } = require('../lib/docxProposal');
+const { gerarDocumentosPropostaAceite } = require('./proposalsExternal');
 
 const router = express.Router();
+
+// Fase 3.11.6 (seção 5): mesmo padrão de api/routes/signatures.js
+// (assertPodeGerarDocumentoAssinado/decodeJwtSub) — checagem de papel explícita no
+// Node, nunca só confiando em RLS para autorizar a AÇÃO de gerar o PDF final (RLS
+// decide o que cada papel VÊ, não necessariamente o que cada papel pode DISPARAR).
+function decodeJwtSub(jwt) {
+  try {
+    const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
+    return payload.sub || null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function assertPodeGerarDocumentoProposta(req) {
+  const sub = decodeJwtSub(req.userJwt);
+  if (!sub) throw new Error('PERMISSAO_NEGADA: token inválido.');
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.from('usuarios').select('perfil, ativo').eq('id', sub).maybeSingle();
+  if (error) throw error;
+  if (!data || !data.ativo || !['COMERCIAL', 'DIRETOR', 'ADMINISTRADOR'].includes(data.perfil)) {
+    throw new Error('PERMISSAO_NEGADA: só COMERCIAL/DIRETOR/ADMINISTRADOR pode gerar o documento de aceite da proposta.');
+  }
+}
 
 // Fase 3.11.3 (seção 12): PARTNER_REQUIRED/PARTNER_NOT_FOUND/PARTNER_INACTIVE são
 // códigos previsíveis levantados por pricing_proposal_create/duplicar_proposta/
@@ -305,6 +330,55 @@ router.get('/:id/export', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err?.message || 'Falha ao gerar o documento da proposta.' });
   }
+});
+
+// GET /api/proposals/:id/document-aceite — Fase 3.11.6 (seção 5): leitura, por STAFF,
+// dos caminhos já registrados do PDF de aceite (mirror de GET /api/signatures/
+// envelopes/:id/document). Nunca gera nada aqui — só devolve o que já existe.
+router.get('/:id/document-aceite', async (req, res) => {
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.rpc('pricing_proposta_documento_por_id', { p_proposta_id: req.params.id });
+  if (error) return handleError(res, error);
+  if (!data?.storage_path_aceite) return res.status(404).json({ error: 'O PDF final de aceite desta proposta ainda não foi gerado.' });
+
+  const { data: signed, error: signError } = await supabase.storage.from('documentos').createSignedUrl(data.storage_path_aceite, 300);
+  if (signError) return res.status(502).json({ error: `Falha ao gerar link de download: ${signError.message}.` });
+  return res.json({ url: signed.signedUrl, expira_em_segundos: 300 });
+});
+
+// POST /api/proposals/:id/gerar-documento-aceite — Fase 3.11.6 (seção 5): geração/
+// regeneração sob demanda pelo STAFF (mirror exato de POST /api/signatures/envelopes/
+// :id/gerar-documento-assinado, Fase 3.11.5.1) — cobre o caso de a geração automática
+// (disparada em POST /accept/confirmar) ter falhado uma vez e nunca ter tido nova
+// chance. Empresta o próprio token_acesso_externo da proposta (mesma técnica de
+// signatures.js: um valor já legível por `authenticated` via RLS, usado para satisfazer
+// as RPCs anon-scoped por token sem duplicar toda a lógica de geração em 2 lugares).
+router.post('/:id/gerar-documento-aceite', async (req, res) => {
+  try {
+    await assertPodeGerarDocumentoProposta(req);
+  } catch (err) {
+    return res.status(403).json({ error: err.message });
+  }
+  const supabase = clientForRequest(req.userJwt);
+  const { data: proposta, error: propError } = await supabase
+    .from('propostas_comerciais')
+    .select('id, status, aceite_em, token_acesso_externo')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (propError) return handleError(res, propError);
+  if (!proposta) return res.status(404).json({ error: `Proposta ${req.params.id} não encontrada.` });
+  if (!proposta.aceite_em) {
+    return res.status(409).json({ error: `Proposta ainda não foi aceita pelo parceiro (status atual: ${proposta.status}) — não há aceite para gerar o PDF final.` });
+  }
+  if (!proposta.token_acesso_externo) {
+    return res.status(500).json({ error: 'Esta proposta não tem token_acesso_externo — não é possível gerar o documento (dado inconsistente).' });
+  }
+  try {
+    await gerarDocumentosPropostaAceite({ supabase: anonClient(), token: proposta.token_acesso_externo, ip: req.ip || req.headers['x-forwarded-for'] || null });
+  } catch (err) {
+    return res.status(502).json({ error: `Falha ao gerar o PDF final de aceite: ${err.message || err}.` });
+  }
+  return res.json({ ok: true });
 });
 
 module.exports = router;

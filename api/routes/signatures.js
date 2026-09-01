@@ -650,15 +650,106 @@ router.post('/envelopes/:id/gerar-documento-assinado', async (req, res) => {
 // recebidos + evidências do provedor (nunca reconstrói, só lista o que já foi
 // registrado/preservado — seção 20: "preservar as evidências fornecidas pelo
 // provedor").
+// Fase 3.11.6 (seção 1/2/4): rótulos legíveis para as ações semânticas de assinatura já
+// gravadas em `auditoria` desde a Fase 2.5 — nunca uma ação nova, só o texto que a UI
+// mostra na coluna "Evento". Ações negativas (falha/recusa/bounce) marcam resultado
+// REJEITADO; as demais, PROCESSADO (só chegam em auditoria depois de o efeito real ter
+// sido aplicado, então "recebido" e "processado" são o mesmo instante para elas).
+const AUDITORIA_EVENTO_LABEL = {
+  SIGNATURE_ENVELOPE_CREATE: 'Envelope criado',
+  SIGNATURE_SIGNER_ADDED: 'Signatário adicionado',
+  SIGNATURE_ENVELOPE_SEND: 'Envelope enviado',
+  SIGNATURE_SEND_REQUESTED: 'Envio de e-mail solicitado',
+  SIGNATURE_SEND_ACCEPTED: 'E-mail aceito pelo Resend',
+  SIGNATURE_SEND_FAILED: 'Falha ao enviar e-mail',
+  SIGNATURE_ENVELOPE_SEND_FAILED: 'Falha ao enviar envelope',
+  SIGNATURE_DELIVERED: 'E-mail entregue',
+  SIGNATURE_EMAIL_BOUNCED: 'E-mail rejeitado/retornado (bounce)',
+  SIGNATURE_OPENED: 'Link aberto pelo signatário',
+  SIGNATURE_ACCEPT_OTP_REQUESTED: 'Código de confirmação (OTP) solicitado',
+  SIGNATURE_ACCEPT_OTP_FAILED: 'Código de confirmação (OTP) incorreto',
+  SIGNATURE_SIGNED: 'Documento assinado pelo signatário',
+  SIGNATURE_DECLINED_BY_SIGNER: 'Assinatura recusada pelo signatário',
+  SIGNATURE_VALIDATED: 'Assinatura validada',
+  SIGNATURE_DOCUMENT_ASSINADO_GERADO: 'PDF final (com certificado) gerado',
+  SIGNATURE_ENVELOPE_CANCEL: 'Envelope cancelado',
+  SIGNATURE_SIGNER_RESEND: 'Reenvio de e-mail solicitado',
+  SIGNATURE_TEST_CONNECTION: 'Teste de conexão com o provedor',
+};
+const AUDITORIA_EVENTO_REJEITADO = new Set([
+  'SIGNATURE_SEND_FAILED', 'SIGNATURE_ENVELOPE_SEND_FAILED', 'SIGNATURE_EMAIL_BOUNCED',
+  'SIGNATURE_ACCEPT_OTP_FAILED', 'SIGNATURE_DECLINED_BY_SIGNER',
+]);
+
+// GET /envelopes/:id/audit — Fase 3.11.6 (seção 1): CAUSA RAIZ investigada e corrigida
+// aqui. Antes, esta rota só consultava `signature_events` — tabela criada na Fase 2.5
+// para um provedor de assinatura externo real que este projeto nunca usou em produção
+// (o provedor atual, OPTIMON_INTERNO_RESEND, nunca escreve nela) — por isso a UI sempre
+// mostrava "Nenhum evento recebido ainda.", mesmo com contratos genuinamente assinados.
+// A trilha REAL e completa (criação do envelope, envio, entrega, abertura do link, OTP,
+// assinatura, validação, geração do PDF final) sempre esteve, rica e correta, na tabela
+// `auditoria` (via app.registrar_auditoria_semantica) — nunca consultada por aqui antes.
+// Esta rota agora une as duas fontes: `auditoria` (ações de primeira parte do OptiMon —
+// sempre "recebido"="processado", já que só são gravadas depois do efeito acontecer de
+// verdade) + `signature_events` (webhooks do Resend de fato recebidos — seção 2/3 desta
+// fase, com recebido_em/processado_em/resultado distintos e idempotência real).
 router.get('/envelopes/:id/audit', async (req, res) => {
   const supabase = clientForRequest(req.userJwt);
-  const [{ data: eventos, error: evError }, { data: evidencias, error: eviError }] = await Promise.all([
-    supabase.from('signature_events').select('id, evento_externo_id, tipo_evento, payload, processado, recebido_em').eq('envelope_id', req.params.id).order('recebido_em'),
+  const { data: signers, error: signersError } = await supabase
+    .from('signature_signers')
+    .select('id, nome')
+    .eq('envelope_id', req.params.id);
+  if (signersError) return handleError(res, signersError);
+  const signerIds = (signers || []).map((s) => s.id);
+  const signerNome = Object.fromEntries((signers || []).map((s) => [s.id, s.nome]));
+
+  const entidadeIds = [req.params.id, ...signerIds];
+  const [{ data: auditoriaRows, error: audError }, { data: eventos, error: evError }, { data: evidencias, error: eviError }] = await Promise.all([
+    // Fase 3.11.6: exclui os rastros GENÉRICOS do trigger public.fn_auditoria
+    // (acao='INSERT'/'UPDATE'/'DELETE', gravados em TODA alteração de qualquer coluna)
+    // — cada ação semântica relevante (SIGNATURE_SIGNED, SIGNATURE_OPENED etc.) já é
+    // gravada em paralelo por app.registrar_auditoria_semantica com o mesmo timestamp,
+    // então o genérico só duplicaria a mesma linha do tempo sem informação nova. Nunca
+    // esconde um problema — remove ruído estrutural do banco, não um evento real.
+    supabase.from('auditoria').select('id, acao, entidade, entidade_id, criado_em, motivo, ip, origem')
+      .in('entidade_id', entidadeIds).in('entidade', ['signature_envelopes', 'signature_signers'])
+      .not('acao', 'in', '(INSERT,UPDATE,DELETE)').order('criado_em'),
+    supabase.from('signature_events').select('id, evento_externo_id, tipo_evento, payload, processado, recebido_em, processado_em, resultado, signer_id, erro')
+      .or(`envelope_id.eq.${req.params.id}${signerIds.length ? ',signer_id.in.(' + signerIds.join(',') + ')' : ''}`)
+      .order('recebido_em'),
     supabase.from('documentos_evidencias').select('id, tipo, storage_path, descricao, criado_em').eq('envelope_id', req.params.id).order('criado_em'),
   ]);
+  if (audError) return handleError(res, audError);
   if (evError) return handleError(res, evError);
   if (eviError) return handleError(res, eviError);
-  return res.json({ eventos: eventos || [], evidencias: evidencias || [] });
+
+  // Fase 3.11.6 (seção 4): formato explícito da tabela pedida — Evento | Signatário |
+  // Data/Hora | Recebido | Processado | Resultado. "Recebido"/"Processado" aqui viram
+  // booleanos (a UI decide o texto: "Não recebido do provedor" nunca é ambíguo).
+  const trilha = [
+    ...(auditoriaRows || []).map((a) => ({
+      origem: 'OPTIMON',
+      evento: AUDITORIA_EVENTO_LABEL[a.acao] || a.acao,
+      signatario: signerNome[a.entidade_id] || null,
+      data_hora: a.criado_em,
+      recebido: true,
+      processado: true,
+      resultado: AUDITORIA_EVENTO_REJEITADO.has(a.acao) ? 'REJEITADO' : 'PROCESSADO',
+      detalhe: a.motivo || null,
+    })),
+    ...(eventos || []).map((e) => ({
+      origem: 'WEBHOOK_RESEND',
+      evento: e.tipo_evento,
+      signatario: signerNome[e.signer_id] || null,
+      data_hora: e.recebido_em,
+      recebido: true,
+      processado: !!e.processado_em,
+      resultado: e.resultado,
+      detalhe: e.erro || null,
+    })),
+  ].sort((x, y) => new Date(x.data_hora) - new Date(y.data_hora));
+
+  return res.json({ trilha, eventos: eventos || [], evidencias: evidencias || [] });
 });
 
 // POST /api/signatures/envelopes/:id/validate — "VALIDAR ASSINATURA" (seção

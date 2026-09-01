@@ -153,3 +153,57 @@ create policy documentos_bucket_update_assinado_anon
 
 comment on policy documentos_bucket_write_assinado_anon on storage.objects is 'Fase 3.11.5: permite ao cliente anônimo gravar SOMENTE o PDF final de assinatura (padrão exato envelopes/<id>/assinado-<timestamp>.pdf, gerado por gerarDocumentoAssinadoContrato) — nunca original-*.pdf nem qualquer outro nome; registrar esse caminho como o documento oficial ainda exige a RPC com token válido.';
 comment on policy documentos_bucket_update_assinado_anon on storage.objects is 'Fase 3.11.5: companion da policy de insert acima — necessária porque o upload usa upsert:true (o cliente Storage pode fazer UPDATE quando o mesmo caminho já existe).';
+
+-- ============================================================================
+-- Fase 3.11.6 (seção 5): mesmo padrão de RLS de Storage acima, agora para o
+-- prefixo `propostas/` — os 2 PDFs de aceite da proposta (original + aceite com
+-- certificado), gerados por gerarDocumentosPropostaAceite()
+-- (api/routes/proposalsExternal.js), SEMPRE chamada com anonClient() (a rota de
+-- confirmação de aceite nunca tem sessão logada). DIFERENÇA real em relação ao
+-- padrão de envelopes/: ali o `original-*.pdf` é gravado por uma rota
+-- AUTENTICADA (criar envelope) e só o `assinado-*.pdf` precisa de escrita anon;
+-- aqui NÃO EXISTE nenhuma rota autenticada que pré-grave a minuta da proposta em
+-- Storage — a minuta original também é gerada, pela primeira vez, dentro da
+-- própria rota anônima de confirmação de aceite. Por isso `propostas/` precisa
+-- de escrita anon para AMBOS os padrões (original-*.pdf E aceite-*.pdf) — nunca
+-- um prefixo aberto: cada padrão é validado por `similar to` exatamente como no
+-- padrão assinado-*.pdf acima, e registrar qualquer um dos dois caminhos como
+-- oficial ainda exige a RPC app.registrar_documentos_proposta_aceite, escopada
+-- por token e só depois de aceite_em já preenchido.
+drop policy if exists documentos_bucket_select_propostas_anon on storage.objects;
+create policy documentos_bucket_select_propostas_anon
+  on storage.objects for select
+  to anon
+  using (bucket_id = 'documentos' and name like 'propostas/%');
+
+drop policy if exists documentos_bucket_write_propostas_anon on storage.objects;
+create policy documentos_bucket_write_propostas_anon
+  on storage.objects for insert
+  to anon
+  with check (
+    bucket_id = 'documentos' and (
+      name similar to 'propostas/[0-9a-f-]+/original-[0-9]+\.pdf'
+      or name similar to 'propostas/[0-9a-f-]+/aceite-[0-9]+\.pdf'
+    )
+  );
+
+drop policy if exists documentos_bucket_update_propostas_anon on storage.objects;
+create policy documentos_bucket_update_propostas_anon
+  on storage.objects for update
+  to anon
+  using (
+    bucket_id = 'documentos' and (
+      name similar to 'propostas/[0-9a-f-]+/original-[0-9]+\.pdf'
+      or name similar to 'propostas/[0-9a-f-]+/aceite-[0-9]+\.pdf'
+    )
+  )
+  with check (
+    bucket_id = 'documentos' and (
+      name similar to 'propostas/[0-9a-f-]+/original-[0-9]+\.pdf'
+      or name similar to 'propostas/[0-9a-f-]+/aceite-[0-9]+\.pdf'
+    )
+  );
+
+comment on policy documentos_bucket_select_propostas_anon on storage.objects is 'Fase 3.11.6: permite ao cliente anônimo (área externa do parceiro) gerar signed URL para os PDFs de aceite da proposta (prefixo propostas/) — autorização real já verificada pelo token opaco da proposta antes da rota Node chamar createSignedUrl().';
+comment on policy documentos_bucket_write_propostas_anon on storage.objects is 'Fase 3.11.6: permite ao cliente anônimo gravar SOMENTE os 2 padrões de nome exatos usados por gerarDocumentosPropostaAceite() (original-<timestamp>.pdf e aceite-<timestamp>.pdf) — nunca outro nome; registrar qualquer um dos 2 caminhos como oficial ainda exige a RPC com token válido e aceite_em já preenchido.';
+comment on policy documentos_bucket_update_propostas_anon on storage.objects is 'Fase 3.11.6: companion da policy de insert acima — necessária porque o upload usa upsert:true.';

@@ -196,21 +196,52 @@ export default function SignatureDetail() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Trilha de auditoria (eventos + evidências do provedor)</h3>
+        {/* Fase 3.11.6 (seção 1/4): antes, esta tabela só lia `signature_events` — uma
+            tabela que a arquitetura atual (provedor OPTIMON_INTERNO_RESEND) nunca
+            popula — por isso a mensagem antiga (texto ambíguo, removido nesta fase)
+            sempre aparecia, mesmo
+            com o contrato genuinamente assinado. A API agora devolve `trilha`, unindo
+            os eventos de PRIMEIRA PARTE do OptiMon (criação, envio, abertura, OTP,
+            assinatura — tabela `auditoria`, sempre existiu, nunca foi lida aqui) com os
+            eventos DE FATO recebidos do webhook do Resend (`signature_events`, agora
+            com prova real de recebido/processado). "Não recebido do provedor" só
+            aparece quando não existe NENHUM registro em nenhuma das duas fontes —
+            nunca mais um texto ambíguo. */}
+        <h3 style={{ marginTop: 0 }}>Trilha de eventos do provedor</h3>
         {!audit ? <div className="spinner" /> : (
-          <>
-            <table style={{ marginBottom: 16 }}>
-              <thead><tr><th>Evento</th><th>Recebido em</th><th>Processado</th></tr></thead>
-              <tbody>
-                {(audit.eventos || []).length === 0 ? (
-                  <tr><td colSpan={3} className="empty-state">Nenhum evento recebido ainda.</td></tr>
-                ) : audit.eventos.map((ev) => (
-                  <tr key={ev.id}><td>{ev.tipo_evento}</td><td>{new Date(ev.recebido_em).toLocaleString('pt-BR')}</td><td>{ev.processado ? 'Sim' : 'Não'}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </>
+          <table style={{ marginBottom: 16 }}>
+            <thead>
+              <tr>
+                <th>Evento</th><th>Signatário</th><th>Data/Hora</th><th>Recebido</th><th>Processado</th><th>Resultado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(audit.trilha || []).length === 0 ? (
+                <tr><td colSpan={6} className="empty-state">Não recebido do provedor — nenhum evento (do OptiMon ou do webhook do Resend) foi registrado para este envelope ainda.</td></tr>
+              ) : audit.trilha.map((ev, idx) => (
+                <tr key={idx}>
+                  <td>{ev.evento}{ev.detalhe ? <span style={{ color: 'var(--text-muted, #666)', fontSize: 12 }}> — {ev.detalhe}</span> : null}</td>
+                  <td>{ev.signatario || '—'}</td>
+                  <td>{new Date(ev.data_hora).toLocaleString('pt-BR')}</td>
+                  <td>{ev.recebido ? 'Sim' : 'Não recebido do provedor'}</td>
+                  <td>{ev.processado ? 'Sim' : 'Não'}</td>
+                  <td>
+                    <span style={{ color: ev.resultado === 'REJEITADO' ? '#c92a2a' : ev.resultado === 'DESCONHECIDO' ? '#e08e0b' : '#1a7f37', fontWeight: 600 }}>
+                      {ev.resultado === 'PROCESSADO' ? 'Sucesso' : ev.resultado === 'REJEITADO' ? 'Rejeitado' : ev.resultado === 'DESCONHECIDO' ? 'Desconhecido' : 'Pendente'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
+        <p style={{ color: 'var(--text-muted, #666)', fontSize: 13, marginBottom: 0 }}>
+          <strong>Nota (Fase 3.11.6):</strong> "Recebido" marca eventos vindos de fato do
+          webhook do Resend (o único provedor externo real integrado hoje); ações
+          realizadas diretamente pelo OptiMon (criação, envio, OTP, assinatura) contam
+          como recebidas e processadas no mesmo instante em que acontecem — não passam
+          por um webhook externo.
+        </p>
       </div>
     </div>
   );

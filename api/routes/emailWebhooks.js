@@ -80,6 +80,32 @@ router.post('/resend', express.raw({ type: '*/*', limit: '2mb' }), async (req, r
     secret,
   });
   if (!ok) {
+    // Fase 3.11.6 (seção 3): "evento adulterado → rejeitado" precisa deixar rastro,
+    // mesmo sem confiar em nada do payload — svix-id do header (não confiável, mas é
+    // só uma chave de log) + hash do corpo bruto recebido, marcado REJEITADO na hora.
+    // Aguardado (nunca fire-and-forget): recebido_em precisa estar gravado ANTES da
+    // resposta voltar, senão "prova de evento recebido" vira uma corrida sem garantia
+    // nenhuma. Best-effort só no sentido de que uma falha AQUI nunca muda o 401 (nunca
+    // confiar cegamente no payload continua valendo acima de tudo).
+    try {
+      const anonForLog = anonClient();
+      const payloadHash = crypto.createHash('sha256').update(rawBody).digest('hex');
+      const { data, error: logError } = await anonForLog.rpc('pricing_signature_webhook_recebido', {
+        p_provider: 'RESEND_EMAIL_WEBHOOK',
+        p_evento_externo_id: req.headers['svix-id'] || `sem-svix-id:${payloadHash}`,
+        p_tipo_evento: 'ASSINATURA_INVALIDA',
+        p_payload: null,
+        p_payload_hash: payloadHash,
+      });
+      if (!logError) {
+        const row = Array.isArray(data) ? data[0] : data;
+        if (row?.evento_id && !row?.duplicado) {
+          await anonForLog.rpc('pricing_signature_webhook_rejeitado', { p_evento_id: row.evento_id, p_erro: 'Assinatura Svix inválida.' });
+        }
+      }
+    } catch (_logErr) {
+      // nunca deixa uma falha no LOG mudar o 401 nem derrubar a resposta.
+    }
     return res.status(401).json({ error: 'Assinatura do webhook inválida — evento recusado (nunca confiar cegamente no payload).' });
   }
 
@@ -98,11 +124,46 @@ router.post('/resend', express.raw({ type: '*/*', limit: '2mb' }), async (req, r
     return res.status(200).json({ ignorado: true, motivo: 'type/data.email_id ausentes.' });
   }
 
+  // Fase 3.11.6 (seção 1/2/3): antes de qualquer processamento, registra o RECEBIMENTO
+  // do webhook em signature_events — svix-id é a chave de idempotência (única por
+  // tentativa de entrega, nunca reciclada pelo Resend). Isso dá prova de "evento
+  // recebido" mesmo quando o processamento em si é ignorado/rejeitado/desconhecido, e
+  // garante que um reenvio do MESMO evento pelo Resend (retry) nunca reaplica o efeito
+  // duas vezes.
+  const anon = anonClient();
+  const svixId = req.headers['svix-id'];
+  const payloadHash = crypto.createHash('sha256').update(rawBody).digest('hex');
+  let eventoId = null;
+  if (svixId) {
+    const { data: recebido, error: recebidoError } = await anon.rpc('pricing_signature_webhook_recebido', {
+      p_provider: 'RESEND_EMAIL_WEBHOOK',
+      p_evento_externo_id: svixId,
+      p_tipo_evento: tipoEvento,
+      p_payload: payload,
+      p_payload_hash: payloadHash,
+    });
+    if (recebidoError) {
+      console.error('[resend-webhook] erro ao registrar recebimento do evento:', recebidoError.message);
+      // Nunca deixa uma falha no LOG derrubar o processamento real (seção 3: evento
+      // desconhecido/erro de registro nunca quebra o sistema) — segue sem eventoId.
+    } else {
+      const row = Array.isArray(recebido) ? recebido[0] : recebido;
+      eventoId = row?.evento_id || null;
+      if (row?.duplicado) {
+        // Idempotência (seção 3): mesmo evento (mesmo svix-id) já foi recebido antes —
+        // devolve 200 sem reprocessar, nunca reaplica a mudança de status duas vezes.
+        return res.status(200).json({ duplicado: true, tipo_evento: tipoEvento, motivo: 'svix-id já processado anteriormente.' });
+      }
+    }
+  }
+
   const novoStatus = EVENT_MAP[tipoEvento];
   if (novoStatus === undefined) {
+    if (eventoId) await anon.rpc('pricing_signature_webhook_desconhecido', { p_evento_id: eventoId, p_detalhe: `tipo de evento não mapeado: ${tipoEvento}` });
     return res.status(200).json({ ignorado: true, motivo: `tipo de evento não mapeado: ${tipoEvento}` });
   }
   if (novoStatus === null) {
+    if (eventoId) await anon.rpc('pricing_signature_webhook_processado', { p_evento_id: eventoId });
     return res.status(200).json({ ignorado: true, motivo: `evento informativo sem mudança de status: ${tipoEvento}` });
   }
 
@@ -110,17 +171,18 @@ router.post('/resend', express.raw({ type: '*/*', limit: '2mb' }), async (req, r
     ? `Evento Resend: ${tipoEvento}`
     : null;
 
-  const anon = anonClient();
   const { error } = await anon.rpc('pricing_proposal_accept_email_status_por_provider_id', {
     p_email_provider_id: emailId,
     p_email_status: novoStatus,
     p_detalhe: detalhe,
   });
   if (!error) {
+    if (eventoId) await anon.rpc('pricing_signature_webhook_processado', { p_evento_id: eventoId });
     return res.status(200).json({ processado: true, tipo_evento: tipoEvento, novo_status: novoStatus, fluxo: 'proposta_otp' });
   }
   if (!/TENTATIVA_INVALIDA/i.test(error.message || '')) {
     console.error('[resend-webhook] erro ao registrar evento (fluxo OTP de proposta):', error.message);
+    if (eventoId) await anon.rpc('pricing_signature_webhook_rejeitado', { p_evento_id: eventoId, p_erro: error.message });
     return res.status(500).json({ error: 'Erro ao registrar evento do webhook.' });
   }
 
@@ -129,17 +191,26 @@ router.post('/resend', express.raw({ type: '*/*', limit: '2mb' }), async (req, r
   // eletrônica enviado por signatureLinkNotifier.js.
   const signatureEvento = { 'email.delivered': 'EMAIL_ENTREGUE', 'email.bounced': 'EMAIL_REJEITADO', 'email.complained': 'EMAIL_REJEITADO', 'email.failed': 'EMAIL_FALHOU' }[tipoEvento] || null;
   if (!signatureEvento) {
+    if (eventoId) await anon.rpc('pricing_signature_webhook_desconhecido', { p_evento_id: eventoId, p_detalhe: 'email_id não corresponde a nenhuma tentativa de aceite de OTP nem a um envio de assinatura.' });
     return res.status(200).json({ ignorado: true, motivo: 'email_id não corresponde a nenhuma tentativa de aceite de OTP nem a um envio de assinatura.' });
   }
-  const { error: sigError } = await anon.rpc('pricing_signature_email_status_por_provider_id', {
+  const { data: sigData, error: sigError } = await anon.rpc('pricing_signature_email_status_por_provider_id', {
     p_email_provider_id: emailId, p_evento: signatureEvento, p_detalhe: detalhe,
   });
   if (sigError) {
     if (/TENTATIVA_INVALIDA/i.test(sigError.message || '')) {
+      if (eventoId) await anon.rpc('pricing_signature_webhook_desconhecido', { p_evento_id: eventoId, p_detalhe: 'email_id não corresponde a nenhuma tentativa de aceite de OTP nem a um envio de assinatura.' });
       return res.status(200).json({ ignorado: true, motivo: 'email_id não corresponde a nenhuma tentativa de aceite de OTP nem a um envio de assinatura.' });
     }
     console.error('[resend-webhook] erro ao registrar evento (fluxo de assinatura):', sigError.message);
+    if (eventoId) await anon.rpc('pricing_signature_webhook_rejeitado', { p_evento_id: eventoId, p_erro: sigError.message });
     return res.status(500).json({ error: 'Erro ao registrar evento do webhook.' });
+  }
+
+  if (eventoId) {
+    const envelopeId = sigData?.envelope_id || null;
+    const signerId = sigData?.signer_id || null;
+    await anon.rpc('pricing_signature_webhook_processado', { p_evento_id: eventoId, p_envelope_id: envelopeId, p_signer_id: signerId });
   }
 
   return res.status(200).json({ processado: true, tipo_evento: tipoEvento, novo_status: signatureEvento, fluxo: 'assinatura_eletronica' });

@@ -177,6 +177,11 @@ export const api = {
     // natural — depois disso o link para de funcionar por completo.
     revokeToken: (id, body = {}) => request(`/api/proposals/${id}/revoke-token`, { method: 'POST', body }),
     historico: (id) => request(`/api/proposals/${id}/historico`),
+    // Fase 3.11.6 (seção 5): PDF final "PROPOSTA ACEITA ELETRONICAMENTE" (com
+    // certificado) — leitura (signed URL, se já gerado) e geração/regeneração sob
+    // demanda (mirror de signatures.gerarDocumentoAssinado).
+    documentAceite: (id) => request(`/api/proposals/${id}/document-aceite`),
+    gerarDocumentoAceite: (id) => request(`/api/proposals/${id}/gerar-documento-aceite`, { method: 'POST' }),
   },
 
   // Fase 3.11 (seções 5-9): área externa do parceiro — SEM autenticação (o parceiro
@@ -191,6 +196,10 @@ export const api = {
     acceptIniciar: (token, body) => requestExternal(`/api/proposals/external/${token}/accept/iniciar`, { method: 'POST', body }),
     acceptConfirmar: (token, body) => requestExternal(`/api/proposals/external/${token}/accept/confirmar`, { method: 'POST', body }),
     decline: (token, body) => requestExternal(`/api/proposals/external/${token}/decline`, { method: 'POST', body }),
+    // Fase 3.11.6 (seção 5): minuta original e PDF final de aceite (com certificado) —
+    // mirror de signaturesExternal.document/documentoAssinado.
+    document: (token) => requestExternal(`/api/proposals/external/${token}/document`),
+    documentAceite: (token) => requestExternal(`/api/proposals/external/${token}/document-aceite`),
   },
 
   // Fase 3.11.4 (seções 12-13): área externa do signatário — SEM autenticação (o

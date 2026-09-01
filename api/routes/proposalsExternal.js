@@ -22,6 +22,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { anonClient } = require('../lib/supabaseClient');
 const { buildOtpNotifier } = require('../lib/otpNotifier');
+const { generateProposalPdf } = require('../lib/pdfProposal');
 
 const router = express.Router();
 const otpNotifier = buildOtpNotifier();
@@ -74,6 +75,57 @@ function handleError(res, error) {
     status = 400;
   }
   return res.status(status).json({ error: message });
+}
+
+// Fase 3.11.6 (seção 5): gera e persiste os DOIS PDFs no momento do aceite — a minuta
+// ORIGINAL exatamente como estava quando o parceiro aceitou (nunca sobrescrita depois,
+// ver app.registrar_documentos_proposta_aceite) e o PDF FINAL "PROPOSTA ACEITA
+// ELETRONICAMENTE" com a página de certificado. Mirror EXATO de
+// signaturesExternal.js:gerarDocumentoAssinadoContrato — nunca um 2º padrão de
+// orquestração. Best-effort/resiliente: chamada de dentro de um try/catch em
+// /accept/confirmar, nunca derruba o aceite em si se o Storage falhar (mesma
+// resiliência já documentada na Fase 3.11.5 para o contrato).
+async function gerarDocumentosPropostaAceite({ supabase, token, ip }) {
+  const [{ data: dadosProposta, error: dadosError }, { data: certificado, error: certError }] = await Promise.all([
+    supabase.rpc('pricing_proposta_documento_dados_por_token', { p_token: token }),
+    supabase.rpc('pricing_proposta_aceite_certificado_dados_por_token', { p_token: token }),
+  ]);
+  if (dadosError) throw dadosError;
+  if (certError) throw certError;
+  if (!dadosProposta) throw new Error('Dados da proposta indisponíveis para gerar o documento (aceite ainda não confirmado?).');
+  if (!certificado) throw new Error('Certificado de aceite indisponível (aceite ainda não confirmado?).');
+
+  const propostaId = certificado.proposta_id;
+
+  // Original: só gera/sobe se ainda não existir (o RPC de registro também garante isso
+  // via COALESCE, mas evita subir um PDF ao Storage à toa em toda regeneração).
+  const { data: existente } = await supabase.rpc('pricing_proposta_documento_por_token', { p_token: token });
+  let storagePathOriginal = existente?.storage_path_original || null;
+  let hashOriginal = null;
+  if (!storagePathOriginal) {
+    const bufferOriginal = await generateProposalPdf(dadosProposta, { modo: 'EXTERNA' });
+    storagePathOriginal = `propostas/${propostaId}/original-${Date.now()}.pdf`;
+    const { error: uploadOrigError } = await supabase.storage.from('documentos').upload(storagePathOriginal, bufferOriginal, { contentType: 'application/pdf', upsert: true });
+    if (uploadOrigError) throw uploadOrigError;
+    hashOriginal = crypto.createHash('sha256').update(bufferOriginal).digest('hex');
+  }
+
+  const bufferAceite = await generateProposalPdf(dadosProposta, { modo: 'EXTERNA', certificado });
+  const storagePathAceite = `propostas/${propostaId}/aceite-${Date.now()}.pdf`;
+  const { error: uploadAceiteError } = await supabase.storage.from('documentos').upload(storagePathAceite, bufferAceite, { contentType: 'application/pdf', upsert: true });
+  if (uploadAceiteError) throw uploadAceiteError;
+  const hashAceite = crypto.createHash('sha256').update(bufferAceite).digest('hex');
+
+  const { error: registrarError } = await supabase.rpc('pricing_proposta_documento_aceite_registrar', {
+    p_token: token,
+    p_storage_path_original: storagePathOriginal,
+    p_hash_original: hashOriginal,
+    p_storage_path_aceite: storagePathAceite,
+    p_hash_aceite: hashAceite,
+  });
+  if (registrarError) throw registrarError;
+
+  console.log(`[proposta-aceite-documento] PDFs gerados e registrados para proposta ${propostaId} (original=${storagePathOriginal}, aceite=${storagePathAceite})`);
 }
 
 // GET /api/proposals/external/:token — carrega a proposta pelo token (e já registra a
@@ -190,7 +242,47 @@ router.post('/:token/accept/confirmar', async (req, res) => {
     p_user_agent: req.headers['user-agent'] || null,
   });
   if (error) return handleError(res, error);
+
+  // Fase 3.11.6 (seção 5): gera os PDFs (original + aceite com certificado) só DEPOIS
+  // do aceite formal já estar gravado — nunca bloqueia nem derruba a resposta 200 do
+  // aceite em si se o Storage falhar (mesma resiliência da geração do PDF de contrato,
+  // Fase 3.11.5 — o gap fica registrado no log do servidor, nunca escondido, e o botão
+  // "Gerar/atualizar documento" no ProposalDetail.jsx cobre a regeneração sob demanda).
+  gerarDocumentosPropostaAceite({ supabase, token: req.params.token, ip: clientIp(req) }).catch((genErr) => {
+    console.error(`[proposta-aceite-documento] falha ao gerar PDF final da proposta (tentativa_id=${tentativa_id}):`, genErr?.message || genErr);
+  });
+
   return res.json(data);
+});
+
+// GET /api/proposals/external/:token/document — Fase 3.11.6: minuta ORIGINAL exatamente
+// como estava no momento do aceite (nunca a versão atual, se a proposta tiver sido
+// alterada depois — o que hoje o fluxo não permite após aceite, mas o path gravado
+// nunca é sobrescrito de qualquer forma, ver app.registrar_documentos_proposta_aceite).
+router.get('/:token/document', async (req, res) => {
+  const supabase = anonClient();
+  const { data, error } = await supabase.rpc('pricing_proposta_documento_por_token', { p_token: req.params.token });
+  if (error) return handleError(res, error);
+  if (!data?.storage_path_original) return res.status(404).json({ error: 'Documento original ainda não disponível para esta proposta.' });
+
+  const { data: signed, error: signError } = await supabase.storage.from('documentos').createSignedUrl(data.storage_path_original, 300);
+  if (signError) return res.status(502).json({ error: `Falha ao gerar link de download: ${signError.message}.` });
+  return res.json({ url: signed.signedUrl, expira_em_segundos: 300 });
+});
+
+// GET /api/proposals/external/:token/document-aceite — Fase 3.11.6 (seção 5/6): PDF
+// FINAL "PROPOSTA ACEITA ELETRONICAMENTE", com a página de certificado — só existe
+// depois que o aceite for confirmado E o Node terminar de montar/subir o PDF de
+// verdade (nunca uma cópia do original, nunca disponível antes de existir de fato).
+router.get('/:token/document-aceite', async (req, res) => {
+  const supabase = anonClient();
+  const { data, error } = await supabase.rpc('pricing_proposta_documento_por_token', { p_token: req.params.token });
+  if (error) return handleError(res, error);
+  if (!data?.storage_path_aceite) return res.status(404).json({ error: 'O PDF final da proposta aceita ainda não está pronto — tente novamente em instantes.' });
+
+  const { data: signed, error: signError } = await supabase.storage.from('documentos').createSignedUrl(data.storage_path_aceite, 300);
+  if (signError) return res.status(502).json({ error: `Falha ao gerar link de download: ${signError.message}.` });
+  return res.json({ url: signed.signedUrl, expira_em_segundos: 300 });
 });
 
 // POST /api/proposals/external/:token/decline — recusa formal do parceiro (motivo
@@ -208,5 +300,12 @@ router.post('/:token/decline', async (req, res) => {
   if (error) return handleError(res, error);
   return res.json(data);
 });
+
+// Fase 3.11.6: expõe a função no próprio objeto router (mesmo padrão de
+// signaturesExternal.js:gerarDocumentoAssinadoContrato) — server.js continua fazendo
+// `app.use(..., proposalsExternalRoutes)` sem nenhuma mudança; api/routes/proposals.js
+// (rota autenticada de regeneração sob demanda) acrescenta
+// `require('./proposalsExternal').gerarDocumentosPropostaAceite`.
+router.gerarDocumentosPropostaAceite = gerarDocumentosPropostaAceite;
 
 module.exports = router;

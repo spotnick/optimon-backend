@@ -188,6 +188,32 @@ export default function ProposalDetail() {
     }
   }
 
+  // Fase 3.11.6 (seção 5): "PROPOSTA ACEITA ELETRONICAMENTE" — PDF final com a página de
+  // certificado de aceite, gerado automaticamente logo após a confirmação do OTP (pode
+  // ainda não existir se essa geração automática falhou uma vez — daí o botão de
+  // gerar/regenerar, mesmo padrão de ContractDetail.jsx/SignatureDetail.jsx).
+  async function handleVerDocumentoAceite() {
+    setError(null);
+    try {
+      const { url } = await api.proposals.documentAceite(id);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'PDF de aceite ainda não disponível.');
+    }
+  }
+
+  async function handleGerarDocumentoAceite() {
+    setError(null); setBusy(true);
+    try {
+      await api.proposals.gerarDocumentoAceite(id);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao gerar o documento de aceite.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error && !proposta) return <div className="page"><div className="error-banner">{error}</div></div>;
   if (!proposta) return <div className="page"><div className="spinner" /></div>;
 
@@ -356,6 +382,13 @@ export default function ProposalDetail() {
                       <strong>User-agent:</strong> {proposta.aceite_user_agent}
                     </div>
                   )}
+                </div>
+                {/* Fase 3.11.6 (seção 5/6): PDF final "PROPOSTA ACEITA ELETRONICAMENTE"
+                    (com página de certificado) — distinto da minuta comercial exportável
+                    acima (Exportar PDF/DOCX), que não carrega os dados do aceite. */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                  <button className="btn btn-secondary" disabled={busy} onClick={handleVerDocumentoAceite}>Ver PDF de aceite (com certificado)</button>
+                  <button className="btn btn-secondary" disabled={busy} onClick={handleGerarDocumentoAceite}>Gerar/atualizar documento de aceite</button>
                 </div>
               </div>
             )}

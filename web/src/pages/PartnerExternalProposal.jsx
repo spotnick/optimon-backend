@@ -11,6 +11,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { formatCurrencyFull } from '../components/charts/chartUtils';
+// Fase 3.11.6 (seção 7): CPF do aceite da proposta ganha a MESMA validação real já
+// usada na assinatura do contrato (isValidCpf/formatCpf, web/src/lib/cpf.js) — nunca
+// um segundo validador. Só UX aqui; a validação que importa é a do backend/banco
+// (app.cpf_valido, chamada por app.iniciar_aceite_proposta_parceiro).
+import { isValidCpf, formatCpf } from '../lib/cpf';
 
 export default function PartnerExternalProposal() {
   const { token } = useParams();
@@ -38,6 +43,12 @@ export default function PartnerExternalProposal() {
   async function handleSolicitarOtp() {
     if (!form.nome || !form.documento || !form.email) {
       setError('Nome completo, CPF e e-mail são obrigatórios.');
+      return;
+    }
+    // Fase 3.11.6 (seção 7): mesma checagem de UX já usada em SignExternal.jsx — nunca
+    // a validação de verdade, só evita uma ida e volta ao servidor com CPF óbvio errado.
+    if (!isValidCpf(form.documento)) {
+      setError('CPF informado não é válido — confira os números digitados.');
       return;
     }
     if (!declaracao) {
@@ -243,7 +254,12 @@ export default function PartnerExternalProposal() {
                   </div>
                   <div className="field">
                     <label>CPF *</label>
-                    <input value={form.documento} onChange={(e) => setForm((f) => ({ ...f, documento: e.target.value }))} placeholder="000.000.000-00" />
+                    <input
+                      value={form.documento}
+                      onChange={(e) => setForm((f) => ({ ...f, documento: formatCpf(e.target.value) }))}
+                      placeholder="000.000.000-00"
+                      style={form.documento.trim() && !isValidCpf(form.documento) ? { borderColor: 'var(--text-danger, #b42828)' } : undefined}
+                    />
                   </div>
                   <div className="field">
                     <label>Cargo/função</label>
