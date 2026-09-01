@@ -2,12 +2,24 @@
 // pública, SEM login, alcançada por /assinar/:token (fora de <ProtectedRoute>, ver
 // App.jsx — mesmo padrão de /parceiro/proposta/:token). Nunca chama api.signatures.*
 // (exige JWT de usuário da NICK) — usa exclusivamente api.signaturesExternal.*, que fala
-// com as rotas anônimas (api/routes/signaturesExternal.js -> RPCs SECURITY DEFINER grant
-// para `anon`).
+// com as rotas anônimas (api/routes/signaturesExternal.js -> RPCs SECURITY DEFINER
+// grant para `anon`).
+//
+// Fase 3.11.5 (correções de 4 problemas reais reportados pelo usuário testando em
+// produção o fluxo de ponta a ponta):
+//   1. "Revisar documento (PDF)" 404 — corrigido no backend (RLS bloqueava a leitura
+//      anônima do caminho do arquivo); esta tela não precisou mudar para o item 1.
+//   2. CPF sem validação — agora validado em tempo real (mesmo algoritmo do banco,
+//      ver web/src/lib/cpf.js) antes de liberar o botão de assinar.
+//   3. Assinar virou 2 passos — código de confirmação (OTP) de 6 dígitos por e-mail,
+//      mirror exato de PartnerExternalProposal.jsx (Fase 3.11.2).
+//   4. Depois de ASSINADO, um botão novo abre o PDF final com a página de certificado
+//      de assinatura (nunca o mesmo link do documento original).
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
+import { isValidCpf, formatCpf } from '../lib/cpf';
 
 const DOC_LABEL = { PROPOSTA: 'Proposta comercial', CONTRATO: 'Contrato', ADITIVO: 'Aditivo contratual' };
 
@@ -22,6 +34,10 @@ export default function SignExternal() {
   const [declaracao, setDeclaracao] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
   const [resultado, setResultado] = useState(null); // 'ASSINADO' | 'RECUSADO'
+  // Fase 3.11.5 (item 3): confirmação por código (OTP) enviado ao e-mail cadastrado —
+  // nenhuma assinatura é gravada sem essa segunda etapa.
+  const [etapaOtp, setEtapaOtp] = useState(null); // null | { tentativaId, expiraEm, emailMascarado }
+  const [otpInput, setOtpInput] = useState('');
 
   const load = useCallback(() => {
     setError(null);
@@ -39,9 +55,28 @@ export default function SignExternal() {
     }
   }
 
-  async function handleAssinar() {
+  // Fase 3.11.5 (item 4): PDF final com a página de certificado de assinatura — só
+  // aparece depois que info.documento_assinado_disponivel vier true (nunca antes de
+  // existir de fato).
+  async function handleVerDocumentoAssinado() {
+    try {
+      const { url } = await api.signaturesExternal.documentoAssinado(token);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'PDF final assinado ainda não disponível — tente novamente em instantes.');
+    }
+  }
+
+  const cpfDigitado = documento.trim().length > 0;
+  const cpfValido = !cpfDigitado || isValidCpf(documento);
+
+  async function handleSolicitarOtp() {
     if (!nome.trim() || !documento.trim()) {
       setError('Nome completo e CPF são obrigatórios para confirmar a assinatura.');
+      return;
+    }
+    if (!isValidCpf(documento)) {
+      setError('CPF inválido — confira os números digitados.');
       return;
     }
     if (!declaracao) {
@@ -51,15 +86,40 @@ export default function SignExternal() {
     setBusy(true);
     setError(null);
     try {
-      await api.signaturesExternal.assinar(token, { nome: nome.trim(), documento: documento.trim(), declaracao: true });
-      setResultado('ASSINADO');
-      setModo(null);
-      load();
+      const resp = await api.signaturesExternal.assinarIniciar(token, { nome: nome.trim(), documento: documento.trim(), declaracao: true });
+      setEtapaOtp({ tentativaId: resp.tentativa_id, expiraEm: resp.expira_em, emailMascarado: resp.email_mascarado });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erro ao confirmar a assinatura.');
+      setError(err instanceof ApiError ? err.message : 'Erro ao solicitar código de confirmação.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleConfirmarOtp() {
+    if (!otpInput || otpInput.trim().length !== 6) {
+      setError('Informe o código de 6 dígitos recebido por e-mail.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.signaturesExternal.assinarConfirmar(token, { tentativa_id: etapaOtp.tentativaId, otp: otpInput.trim() });
+      setResultado('ASSINADO');
+      setModo(null);
+      setEtapaOtp(null);
+      setOtpInput('');
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao confirmar o código.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleReiniciarAssinatura() {
+    setEtapaOtp(null);
+    setOtpInput('');
+    setError(null);
   }
 
   async function handleRecusar() {
@@ -116,10 +176,15 @@ export default function SignExternal() {
 
           <p style={{ margin: '0 0 16px' }}>Olá, <strong>{info.nome}</strong>. Você foi convidado(a) a assinar eletronicamente este documento.</p>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" disabled={!info.documento_disponivel} onClick={handleVerDocumento}>
               {info.documento_disponivel ? 'Revisar documento (PDF)' : 'Documento indisponível'}
             </button>
+            {jaAssinado && (
+              <button className="btn btn-secondary" disabled={!info.documento_assinado_disponivel} onClick={handleVerDocumentoAssinado}>
+                {info.documento_assinado_disponivel ? 'Ver PDF assinado (com certificado)' : 'Gerando PDF final assinado…'}
+              </button>
+            )}
           </div>
 
           <div className="card" style={{ background: 'var(--surface, #f7f8f9)' }}>
@@ -128,6 +193,12 @@ export default function SignExternal() {
             {jaAssinado && (
               <div style={{ padding: 10, borderRadius: 6, background: 'rgba(14,110,85,0.1)' }}>
                 <strong>✓ Documento assinado.</strong> Obrigado — sua assinatura eletrônica foi registrada com sucesso.
+                {!info.documento_assinado_disponivel && (
+                  <p style={{ margin: '6px 0 0', fontSize: '0.8rem' }}>
+                    O PDF final com o certificado de assinatura está sendo gerado — atualize esta página em alguns
+                    instantes para revisá-lo.
+                  </p>
+                )}
               </div>
             )}
             {jaRecusado && (
@@ -149,7 +220,7 @@ export default function SignExternal() {
               </>
             )}
 
-            {modo === 'ASSINAR' && (
+            {modo === 'ASSINAR' && !etapaOtp && (
               <div style={{ marginTop: 12 }}>
                 <div className="field-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div className="field">
@@ -158,7 +229,17 @@ export default function SignExternal() {
                   </div>
                   <div className="field">
                     <label>CPF *</label>
-                    <input value={documento} onChange={(e) => setDocumento(e.target.value)} placeholder="000.000.000-00" />
+                    <input
+                      value={documento}
+                      onChange={(e) => setDocumento(formatCpf(e.target.value))}
+                      placeholder="000.000.000-00"
+                      inputMode="numeric"
+                      maxLength={14}
+                      style={!cpfValido ? { borderColor: 'var(--text-danger, #b42828)' } : undefined}
+                    />
+                    {!cpfValido && (
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-danger, #b42828)', margin: '4px 0 0' }}>CPF inválido — confira os números digitados.</p>
+                    )}
                   </div>
                 </div>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 16, fontSize: '0.85rem' }}>
@@ -167,11 +248,41 @@ export default function SignExternal() {
                 </label>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 10 }}>
                   Esta é uma assinatura eletrônica simples — evidenciada pelo link único enviado ao seu e-mail
-                  cadastrado, endereço IP e data/hora da confirmação. Não é uma assinatura ICP-Brasil qualificada.
+                  cadastrado, por um código de confirmação de 6 dígitos enviado ao mesmo e-mail, endereço IP e
+                  data/hora da confirmação. Não é uma assinatura ICP-Brasil qualificada.
+                </p>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                  Ao continuar, enviaremos um código de confirmação de 6 dígitos para o seu e-mail cadastrado — a
+                  assinatura só é registrada depois de você confirmar esse código.
                 </p>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-primary" disabled={busy} onClick={handleAssinar}>Confirmar assinatura</button>
+                  <button className="btn btn-primary" disabled={busy || !cpfValido} onClick={handleSolicitarOtp}>Enviar código de confirmação</button>
                   <button className="btn btn-secondary" disabled={busy} onClick={() => setModo(null)}>Cancelar</button>
+                </div>
+              </div>
+            )}
+
+            {modo === 'ASSINAR' && etapaOtp && (
+              <div style={{ marginTop: 12 }}>
+                <p style={{ margin: '0 0 12px' }}>
+                  Enviamos um código de 6 dígitos para <strong>{etapaOtp.emailMascarado}</strong>. Informe-o abaixo para
+                  confirmar a assinatura. O código expira em {new Date(etapaOtp.expiraEm).toLocaleTimeString('pt-BR')}.
+                </p>
+                <div className="field" style={{ maxWidth: 220 }}>
+                  <label>Código de confirmação *</label>
+                  <input
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    inputMode="numeric"
+                    maxLength={6}
+                    style={{ letterSpacing: '0.3em', fontSize: '1.2rem', textAlign: 'center' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" disabled={busy} onClick={handleConfirmarOtp}>Confirmar assinatura</button>
+                  <button className="btn btn-secondary" disabled={busy} onClick={handleReiniciarAssinatura}>Não recebi — solicitar novo código</button>
+                  <button className="btn btn-secondary" disabled={busy} onClick={() => { setModo(null); handleReiniciarAssinatura(); }}>Cancelar</button>
                 </div>
               </div>
             )}

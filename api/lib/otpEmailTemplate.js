@@ -3,8 +3,16 @@
 // já validados/reais (numero e parceiro_nome vêm de app.iniciar_aceite_proposta_
 // parceiro, nunca inventados). Nunca inclui piso/margem/governança/custo interno/dado
 // interno da NICK — nenhum desses campos sequer é recebido por esta função.
+//
+// Fase 3.11.5 (item 3 do relato de produção: "assinatura do contrato deve ter token de
+// validação"): o mesmo template agora atende 2 contextos — 'proposta' (Fase 3.11.2,
+// texto original, inalterado por padrão) e 'assinatura' (novo, usado por
+// app.assinatura_externa_assinar_iniciar via signaturesExternal.js) — nunca um 2º
+// template paralelo só para trocar 2 frases.
 
-const SUBJECT = 'OptiMon — Código de confirmação do aceite da proposta';
+const SUBJECT_PROPOSTA = 'OptiMon — Código de confirmação do aceite da proposta';
+const SUBJECT_ASSINATURA = 'OptiMon — Código de confirmação da assinatura eletrônica';
+const SUBJECT = SUBJECT_PROPOSTA;
 
 function escapeHtml(str) {
   return String(str ?? '')
@@ -15,18 +23,24 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-function buildOtpEmail({ nome, numero, proponente, otp, expiraMinutos }) {
+function buildOtpEmail({ nome, numero, proponente, otp, expiraMinutos, contexto = 'proposta', docLabel }) {
   const nomeSeg = nome || 'representante';
   const numeroSeg = numero || '—';
   const proponenteSeg = proponente || '—';
   const minutos = Number.isFinite(Number(expiraMinutos)) ? Number(expiraMinutos) : 10;
+  const isAssinatura = contexto === 'assinatura';
+  const subject = isAssinatura ? SUBJECT_ASSINATURA : SUBJECT_PROPOSTA;
+  const acaoTexto = isAssinatura
+    ? 'a confirmação da sua assinatura eletrônica do documento:'
+    : 'a confirmação do aceite da proposta comercial:';
+  const linhaLabel = isAssinatura ? (docLabel || 'Documento') : 'Proposta';
 
   const text = [
     `Olá, ${nomeSeg}.`,
     '',
-    'Você solicitou a confirmação do aceite da proposta comercial:',
+    `Você solicitou ${acaoTexto}`,
     '',
-    `Proposta: ${numeroSeg}`,
+    `${linhaLabel}: ${numeroSeg}`,
     `Empresa: ${proponenteSeg}`,
     '',
     'Seu código de confirmação é:',
@@ -56,9 +70,9 @@ function buildOtpEmail({ nome, numero, proponente, otp, expiraMinutos }) {
           <tr>
             <td style="padding:32px;">
               <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Olá, <strong>${escapeHtml(nomeSeg)}</strong>.</p>
-              <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Você solicitou a confirmação do aceite da proposta comercial:</p>
+              <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Você solicitou ${escapeHtml(acaoTexto)}</p>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;font-size:14px;">
-                <tr><td style="padding:4px 0;color:#555;">Proposta</td><td style="padding:4px 0;text-align:right;font-weight:bold;">${escapeHtml(numeroSeg)}</td></tr>
+                <tr><td style="padding:4px 0;color:#555;">${escapeHtml(linhaLabel)}</td><td style="padding:4px 0;text-align:right;font-weight:bold;">${escapeHtml(numeroSeg)}</td></tr>
                 <tr><td style="padding:4px 0;color:#555;">Empresa</td><td style="padding:4px 0;text-align:right;font-weight:bold;">${escapeHtml(proponenteSeg)}</td></tr>
               </table>
               <p style="margin:0 0 8px;font-size:15px;line-height:1.5;">Seu código de confirmação é:</p>
@@ -80,7 +94,7 @@ function buildOtpEmail({ nome, numero, proponente, otp, expiraMinutos }) {
 </body>
 </html>`;
 
-  return { subject: SUBJECT, text, html };
+  return { subject, text, html };
 }
 
-module.exports = { buildOtpEmail, SUBJECT };
+module.exports = { buildOtpEmail, SUBJECT, SUBJECT_PROPOSTA, SUBJECT_ASSINATURA };

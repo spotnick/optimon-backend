@@ -199,7 +199,13 @@ export const api = {
   signaturesExternal: {
     get: (token) => requestExternal(`/api/signatures/external/${token}`),
     document: (token) => requestExternal(`/api/signatures/external/${token}/document`),
-    assinar: (token, body) => requestExternal(`/api/signatures/external/${token}/assinar`, { method: 'POST', body }),
+    // Fase 3.11.5 (item 4): PDF final com certificado de assinatura — só fica
+    // disponível depois que todos os obrigatórios assinaram e o PDF real foi gerado.
+    documentoAssinado: (token) => requestExternal(`/api/signatures/external/${token}/document-assinado`),
+    // Fase 3.11.5 (item 3): assinar virou 2 passos (mirror de proposalsExternal.
+    // acceptIniciar/acceptConfirmar) — nunca mais 1 passo só.
+    assinarIniciar: (token, body) => requestExternal(`/api/signatures/external/${token}/assinar/iniciar`, { method: 'POST', body }),
+    assinarConfirmar: (token, body) => requestExternal(`/api/signatures/external/${token}/assinar/confirmar`, { method: 'POST', body }),
     recusar: (token, body) => requestExternal(`/api/signatures/external/${token}/recusar`, { method: 'POST', body }),
   },
 

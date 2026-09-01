@@ -34,16 +34,16 @@ class ConsoleDevNotifier {
     this.canal = 'DEV_LOG';
   }
 
-  async sendOtp({ email, nome, numero, proponente, otp, expiraEm, expiraMinutos, tentativaId }) {
+  async sendOtp({ email, nome, numero, proponente, otp, expiraEm, expiraMinutos, tentativaId, contexto, docLabel }) {
     if (process.env.APP_ENVIRONMENT === 'production') {
       // Nunca finge sucesso em produção — seção 6: mecanismo de teste nunca em prod.
       throw new Error('RESEND_NAO_CONFIGURADO: RESEND_API_KEY/RESEND_FROM_EMAIL ausentes em produção (APP_ENVIRONMENT=production) — o fallback de log de desenvolvimento nunca roda em produção. Configure as variáveis na Railway.');
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[DEV-OTP-NAO-E-EMAIL-REAL] destinatario=${email} nome="${nome}" tentativa_id=${tentativaId || '?'} proposta=${numero || '?'} `
+      `[DEV-OTP-NAO-E-EMAIL-REAL] contexto=${contexto || 'proposta'} destinatario=${email} nome="${nome}" tentativa_id=${tentativaId || '?'} ${docLabel || 'proposta'}=${numero || '?'} `
       + `proponente="${proponente || '?'}" codigo=${otp} expira_em=${expiraEm} `
-      + '— RESEND_API_KEY/RESEND_FROM_EMAIL não configuradas neste ambiente (ver api/lib/emailService.js); este código NUNCA é devolvido ao navegador do parceiro.'
+      + '— RESEND_API_KEY/RESEND_FROM_EMAIL não configuradas neste ambiente (ver api/lib/emailService.js); este código NUNCA é devolvido ao navegador do parceiro/signatário.'
     );
     return { enviado: false, canal: 'DEV_LOG', emailId: null, aviso: 'Nenhum provedor de e-mail real configurado neste ambiente — código disponível apenas no log do servidor (ambiente de desenvolvimento/homologação, nunca produção).' };
   }
