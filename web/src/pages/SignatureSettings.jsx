@@ -93,11 +93,14 @@ export default function SignatureSettings() {
           é sintaticamente válida, nunca que existe integração real testada. */}
       <div className="card" style={{ marginBottom: 16, borderColor: 'var(--accent-warning, #b45309)', background: 'var(--surface-warning, #fef3c7)' }}>
         <strong>Status ICP-Brasil: NÃO TESTADO com provedor real.</strong>{' '}
-        Hoje só existe um provedor de <strong>homologação (mock)</strong> implementado — ele nunca faz chamada de rede
-        real, nunca valida certificado digital, nunca gera um PAdES. O tipo "ICP_BRASIL_PROVEDOR_EXTERNO" existe no
-        cadastro para permitir configurar uma integração real no futuro, mas <strong>não há nenhum código de
-        integração por trás dele ainda</strong> — tentar usá-lo hoje resulta em erro controlado, nunca numa assinatura
-        real. Nenhum documento assinado neste sistema hoje tem validade jurídica ICP-Brasil real.
+        Nenhum provedor ICP-Brasil qualificado está contratado. Existem 2 provedores realmente implementados hoje:{' '}
+        <strong>ICP_BRASIL_HOMOLOGACAO_MOCK</strong> (simulado, nunca toca rede/e-mail — só para testes internos) e{' '}
+        <strong>OPTIMON_INTERNO_RESEND</strong> (Fase 3.11.4 — envia de verdade o link de assinatura por e-mail via
+        Resend, mas gera uma <strong>assinatura eletrônica simples</strong>, nunca ICP-Brasil qualificada). O tipo
+        "ICP_BRASIL_PROVEDOR_EXTERNO" existe no cadastro para permitir configurar uma integração real no futuro, mas{' '}
+        <strong>não há nenhum código de integração por trás dele ainda</strong> — tentar usá-lo hoje resulta em erro
+        controlado, nunca numa assinatura real. Nenhum documento assinado neste sistema hoje tem validade jurídica
+        ICP-Brasil real.
       </div>
 
       {showForm && (
@@ -108,7 +111,8 @@ export default function SignatureSettings() {
             <div className="field">
               <label>Tipo *</label>
               <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-                <option value="ICP_BRASIL_HOMOLOGACAO_MOCK">ICP_BRASIL_HOMOLOGACAO_MOCK (simulado, só HOMOLOGAÇÃO — único provedor implementado hoje)</option>
+                <option value="ICP_BRASIL_HOMOLOGACAO_MOCK">ICP_BRASIL_HOMOLOGACAO_MOCK (simulado — nunca envia e-mail nem toca rede, só para testes internos)</option>
+                <option value="OPTIMON_INTERNO_RESEND">OPTIMON_INTERNO_RESEND (Fase 3.11.4 — envio REAL do link de assinatura por e-mail via Resend; assinatura eletrônica simples, não ICP-Brasil qualificada)</option>
                 <option value="ICP_BRASIL_PROVEDOR_EXTERNO">ICP_BRASIL_PROVEDOR_EXTERNO (cadastro reservado — SEM integração implementada; salvar não cria uma assinatura real)</option>
               </select>
             </div>

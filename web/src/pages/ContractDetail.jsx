@@ -87,6 +87,13 @@ export default function ContractDetail() {
   // chegar lá pela própria tela do contrato, sem precisar ir em Assinaturas manualmente.
   const [assinatura, setAssinatura] = useState(null);
   const [providers, setProviders] = useState([]);
+  // Fase 3.11.4 — GAP REAL encontrado pelo usuário: "Criar envelope" sempre usava
+  // providers[0] às cegas, sem nenhuma forma de escolher — com 2+ provedores cadastrados
+  // (o MOCK antigo + o novo OPTIMON_INTERNO_RESEND), isso travava o usuário no mock para
+  // sempre. Agora há um <select> real (ver JSX abaixo); o padrão preferido é o primeiro
+  // provider ATIVO do tipo OPTIMON_INTERNO_RESEND (envio real), caindo para o primeiro
+  // provider ativo de qualquer tipo se nenhum OPTIMON_INTERNO_RESEND existir ainda.
+  const [envelopeProviderId, setEnvelopeProviderId] = useState('');
   const [criandoEnvelope, setCriandoEnvelope] = useState(false);
   const [novoSigner, setNovoSigner] = useState({ nome: '', email: '', papel: 'REPRESENTANTE_NICK', ordem: 1, obrigatorio: true });
   const [reenviando, setReenviando] = useState(null); // id do signatário sendo reenviado
@@ -100,17 +107,27 @@ export default function ContractDetail() {
     api.contracts.get(id).then(setContract).catch((err) => setError(err.message));
     api.pricing.capacityByPop(id).then(setMultiPop).catch(() => setMultiPop(null));
     loadAssinatura();
-    api.signatures.providers().then(setProviders).catch(() => setProviders([]));
+    api.signatures.providers().then((list) => {
+      setProviders(list);
+      // Preferência de padrão: 1º provider ATIVO do tipo OPTIMON_INTERNO_RESEND (envio
+      // real via Fase 3.11.4); se não houver, 1º provider ativo de qualquer tipo; se
+      // nenhum estiver ativo, cai no 1º da lista (mantém o comportamento antigo como
+      // último recurso, só para não deixar o select vazio).
+      const ativos = (list || []).filter((p) => p.ativo);
+      const preferido = ativos.find((p) => p.tipo === 'OPTIMON_INTERNO_RESEND') || ativos[0] || list?.[0];
+      setEnvelopeProviderId(preferido ? preferido.id : '');
+    }).catch(() => setProviders([]));
   }
   useEffect(load, [id]);
 
   async function handleCriarEnvelopeContrato() {
-    if (!providers[0]) { setActionError('Nenhum provedor de assinatura configurado (ver Configurações > Assinatura).'); return; }
+    const providerEscolhido = providers.find((p) => p.id === envelopeProviderId) || providers[0];
+    if (!providerEscolhido) { setActionError('Nenhum provedor de assinatura configurado (ver Configurações > Assinatura).'); return; }
     setActionError(null); setBusy(true); setCriandoEnvelope(true);
     try {
       const formData = new FormData();
       formData.append('tipo_documento', 'CONTRATO');
-      formData.append('provider_id', providers[0].id);
+      formData.append('provider_id', providerEscolhido.id);
       formData.append('contrato_id', id);
       const envelope = await api.signatures.createEnvelope(formData);
       setAssinatura({ envelope_id: envelope.id, envelope_status: envelope.status, signatarios: [] });
@@ -149,6 +166,26 @@ export default function ContractDetail() {
       setActionError(err instanceof ApiError ? err.message : 'Erro ao reenviar assinatura.');
     } finally {
       setBusy(false); setReenviando(null);
+    }
+  }
+
+  // Fase 3.11.4 — GAP REAL encontrado pelo usuário: o botão "Cancelar envelope" só existia
+  // na tela dedicada /assinaturas/:id (SignatureDetail.jsx), nunca aqui no painel embutido
+  // do contrato — onde o usuário efetivamente estava olhando. Mirror de
+  // SignatureDetail.jsx:handleCancel, mesmo endpoint (POST /envelopes/:id/cancel, exige
+  // DIRETOR/ADMINISTRADOR — RLS de app.cancelar_envelope_assinatura).
+  async function handleCancelEnvelope() {
+    const motivo = window.prompt('Motivo do cancelamento (obrigatório):');
+    if (!motivo) return;
+    setActionError(null); setBusy(true);
+    try {
+      await api.signatures.cancel(assinatura.envelope_id, { motivo });
+      setActionMsg('Envelope cancelado.');
+      loadAssinatura();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao cancelar envelope.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -484,12 +521,40 @@ export default function ContractDetail() {
           aqui um envelope tipo_documento=CONTRATO com status VALIDADO. */}
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 className="section-title">Assinatura eletrônica do contrato</h2>
-        {!assinatura?.envelope_id ? (
+        {/* Fase 3.11.4 — GAP REAL encontrado pelo usuário: depois de CANCELAR um envelope
+            (ex.: para trocar de provedor), esta tela ficava travada mostrando o envelope
+            morto para sempre, sem nenhuma forma de criar um novo — porque este bloco só
+            checava "existe algum envelope_id", nunca o STATUS dele. CANCELADO/RECUSADO/
+            EXPIRADO são estados terminais que exigem um envelope novo (nunca reaproveitados);
+            ERRO/ERRO_ENVIO continuam recuperáveis no próprio envelope via "Reenviar", então
+            NÃO liberam este formulário. */}
+        {(!assinatura?.envelope_id || ['CANCELADO', 'RECUSADO', 'EXPIRADO'].includes(assinatura.envelope_status)) ? (
           <>
+            {assinatura?.envelope_id && (
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Envelope anterior (<Link className="link-tab" to={`/assinaturas/${assinatura.envelope_id}`}>{assinatura.envelope_id.slice(0, 8)}…</Link>) encerrado como <strong>{assinatura.envelope_status}</strong> — histórico preservado, nunca apagado. Um envelope novo é necessário para continuar (ex.: trocar de provedor).
+              </p>
+            )}
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>
-              Nenhum envelope de assinatura foi criado para este contrato ainda. A minuta (PDF) é gerada
+              Nenhum envelope de assinatura ativo para este contrato. A minuta (PDF) é gerada
               automaticamente ao criar o envelope — mesmo motor já usado para a minuta acima.
             </p>
+            {providers.length > 1 && (
+              <div className="field" style={{ maxWidth: 420, marginBottom: 10 }}>
+                <label>Provedor de assinatura</label>
+                <select value={envelopeProviderId} onChange={(e) => setEnvelopeProviderId(e.target.value)}>
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id} disabled={!p.ativo}>
+                      {p.nome} — {p.tipo}{!p.ativo ? ' (inativo)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Só <strong>OPTIMON_INTERNO_RESEND</strong> envia o link de assinatura por e-mail de verdade (Fase 3.11.4).
+                  <strong> ICP_BRASIL_HOMOLOGACAO_MOCK</strong> é simulado e nunca envia e-mail nem toca rede.
+                </p>
+              </div>
+            )}
             <button className="btn btn-primary" disabled={busy || criandoEnvelope || !providers[0]} onClick={handleCriarEnvelopeContrato}>
               Criar envelope e enviar para assinatura
             </button>
@@ -516,6 +581,16 @@ export default function ContractDetail() {
               {' — '}Último evento: {assinatura.ultimo_evento?.acao || '—'}
               {assinatura.ultimo_evento?.em && ` (${new Date(assinatura.ultimo_evento.em).toLocaleString('pt-BR')})`}
             </p>
+            {!['ASSINADO', 'VALIDADO', 'CANCELADO'].includes(assinatura.envelope_status) && (
+              <button
+                className="btn btn-danger"
+                style={{ fontSize: '0.8rem', padding: '4px 10px', marginBottom: 12 }}
+                disabled={busy}
+                onClick={handleCancelEnvelope}
+              >
+                Cancelar envelope
+              </button>
+            )}
             {assinatura.envelope_status === 'ERRO_ENVIO' && (
               <div style={{ padding: '10px 12px', borderRadius: 6, background: 'rgba(180,40,40,0.1)', marginBottom: 12 }}>
                 <strong style={{ color: 'var(--text-danger, #b42828)' }}>⚠️ FALHA NO ENVIO</strong>

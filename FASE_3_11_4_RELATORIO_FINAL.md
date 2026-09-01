@@ -152,6 +152,54 @@ do motor de assinatura anterior a esta fase.
 Ambos encontrados pelos TESTE-99/100 (o primeiro) e TESTE-115 (o segundo) na suíte automatizada
 abaixo, corrigidos, e a suíte inteira re-executada até 0 FAIL.
 
+### 4 gaps de UI encontrados DEPOIS do deploy em produção (você aplicou a migration, fez
+### push, o deploy Railway+Vercel passou — e reportou corretamente que "essa última alteração
+### não fez nada" na tela)
+
+Causa raiz comum aos 4: o trabalho de backend/banco desta fase (migration, função RPC, rota
+`/api/routes/signatures.js`) foi implementado e testado (125 PASS), mas **o frontend não foi
+atualizado em paralelo** — então a funcionalidade nova existia no banco e na API, mas
+continuava inacessível na tela. Nunca escondido: os 2 primeiros são exatamente os 2 que você
+reportou; os outros 2 foram achados por mim ao verificar se o fluxo de remediação recomendado
+(cancelar o envelope 571aa526 e criar um novo com o provider real) funcionaria de ponta a
+ponta depois da correção — e não funcionaria sem eles.
+
+1. **Reportado por você**: "não tem tipo 'OPTIMON_INTERNO_RESEND' para selecionar!" —
+   `SignatureSettings.jsx` (tela Configurações > Assinatura, formulário "+ Novo Provedor") só
+   tinha 2 opções no `<select>` de tipo (`ICP_BRASIL_HOMOLOGACAO_MOCK` e
+   `ICP_BRASIL_PROVEDOR_EXTERNO`) — a 3ª opção desta fase nunca foi adicionada ao formulário.
+   **Corrigido**: opção `OPTIMON_INTERNO_RESEND` adicionada, com descrição inline deixando
+   claro que é envio real (assinatura eletrônica simples, não ICP-Brasil qualificada); o
+   banner de status da página também foi atualizado (descrevia só o mock como implementado).
+2. **Reportado por você**: "não tem botão cancelar envelope!" — o botão "Cancelar envelope"
+   só existia na página separada `/assinaturas/:id`, nunca no painel de assinatura embutido
+   dentro de `ContractDetail.jsx` (a tela de contrato, de onde você estava operando).
+   **Corrigido**: botão "Cancelar envelope" adicionado ao painel embutido, visível sempre que
+   o envelope não estiver em estado terminal de sucesso (`ASSINADO`/`VALIDADO`) nem já
+   `CANCELADO`; pede motivo obrigatório, mesmo padrão já usado na página separada.
+3. **Achado por mim ao testar o fluxo completo**: o formulário "Criar envelope e enviar para
+   assinatura" em `ContractDetail.jsx` só aparecia quando `!assinatura?.envelope_id` — ou
+   seja, uma vez que QUALQUER envelope existisse para o contrato (mesmo um já `CANCELADO`,
+   `RECUSADO` ou `EXPIRADO`), a tela nunca mais oferecia criar um envelope novo. Isso
+   bloquearia exatamente o passo seguinte da remediação recomendada (cancelar 571aa526 →
+   criar um envelope novo). **Corrigido**: a condição agora também libera a criação quando o
+   envelope mais recente está em um desses 3 estados terminais, mostrando uma nota explicando
+   que o histórico do envelope anterior fica preservado (nunca apagado) e que um novo é
+   necessário para continuar.
+4. **Achado por mim ao testar o fluxo completo**: `handleCriarEnvelopeContrato` fixava
+   `provider_id: providers[0].id` sem nenhuma seleção na tela — com 2 (ou mais) providers
+   cadastrados (o mock antigo "Teste Interno" + o novo `OPTIMON_INTERNO_RESEND`), o sistema
+   sempre usaria o primeiro da lista (o mock), silenciosamente, mesmo depois de você cadastrar
+   o provider novo. **Corrigido**: adicionado um `<select>` de provedor no formulário (só
+   aparece quando há mais de 1 provider cadastrado), com o padrão preferindo automaticamente
+   o primeiro provider ATIVO do tipo `OPTIMON_INTERNO_RESEND`; a função de criar o envelope
+   agora usa o provider selecionado, não mais `providers[0]` às cegas.
+
+Build de produção (`npx vite build`) verificado limpo depois de todas as 4 correções. Arquivos
+sincronizados na sua pasta OneDrive (`web/src/pages/ContractDetail.jsx` e
+`web/src/pages/SignatureSettings.jsx`) — falta só você dar `git commit`/`push` e redeployar
+(Railway não precisa de nada novo aqui, é só o build do Vercel/frontend).
+
 ## TESTE REAL: PASS
 
 Suíte `tests/run_tests_fase311.sh` completa (herdada das Fases 3.11–3.11.3 + nova seção
@@ -210,9 +258,10 @@ vínculo proposta↔contrato, permissões, segurança).
 1. ~~Investigar o envelope 571aa526~~ — **feito**, com dados reais de produção (ver seção
    acima): causa raiz confirmada, provider MOCK/homologação, zero envio real, 2 reenvios que
    também não enviaram nada.
-2. Aplicar a migration `20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql` em
-   produção (Supabase) — ainda não aplicada lá, confirmado pelo bloco 0 do SQL
-   (`tem_fase_3_11_4=false`).
+2. ~~Aplicar a migration `20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql` em
+   produção (Supabase)~~ — **você aplicou** (passo 4 da sua mensagem mais recente); ainda não
+   reconfirmado por uma nova rodada do bloco 0 do SQL de investigação (`tem_fase_3_11_4`
+   deveria vir `true` agora — vale rodar de novo só para ter certeza).
 3. ~~Confirmar `RESEND_API_KEY`/`RESEND_FROM_EMAIL` na Railway~~ — **confirmado por você**:
    já configuradas há tempo (é o que faz o resto do envio de e-mail do sistema funcionar
    hoje). Nenhuma variável nova é necessária — o link de assinatura usa exatamente a mesma
@@ -222,9 +271,15 @@ vínculo proposta↔contrato, permissões, segurança).
 4. Cadastrar um provider `tipo=OPTIMON_INTERNO_RESEND` em produção (ou confirmar que já
    existe) e decidir o que fazer com o envelope 571aa526 (cancelar + recriar — ver seção
    acima) e com os 3 signatários reais (Rodrigo/rodrigo@nicknetwork.com.br,
-   Nadia/cussolinnadia@gmail.com, Rodrigo/borghi@outlook.pt).
-5. Um teste manual real em produção/stage: enviar o novo envelope, confirmar o e-mail
-   chegando numa caixa real, abrir o link, assinar.
+   Nadia/cussolinnadia@gmail.com, Rodrigo/borghi@outlook.pt). **Isso só ficou realmente
+   possível na tela depois dos 4 gaps de UI corrigidos acima** — antes deles, mesmo com a
+   migration aplicada, não havia como selecionar o tipo novo, cancelar o envelope antigo, nem
+   criar um novo apontando pro provider certo.
+5. ~~Corrigir os 4 gaps de UI que impediam usar a Fase 3.11.4 na tela~~ — **feito** (ver seção
+   acima) — falta você dar commit/push/redeploy do frontend para os gaps saírem do ar.
+6. Um teste manual real em produção/stage, depois do redeploy: cadastrar o provider
+   `OPTIMON_INTERNO_RESEND`, cancelar 571aa526, criar o envelope novo com o provider certo,
+   enviar, confirmar o e-mail chegando numa caixa real, abrir o link, assinar.
 
 Até esses itens serem concluídos por você, este relatório considera a correção **provada no
 nível de código e de teste automatizado, e a causa raiz do envelope 571aa526 confirmada com
