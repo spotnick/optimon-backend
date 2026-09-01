@@ -189,6 +189,25 @@ export default function ContractDetail() {
     }
   }
 
+  // Fase 3.11.5 — GAP REAL encontrado pelo usuário: mesma classe de bug do
+  // "Cancelar envelope" acima (Fase 3.11.4) — não havia NENHUM lugar, dentro do painel
+  // embutido do contrato (onde o usuário efetivamente opera), para o ADMINISTRADOR abrir
+  // o PDF final assinado (com a página de certificado). Ele existia — "documento assinado
+  // validado ✓" já aparecia como texto — mas não dava para abrir o documento sem navegar
+  // até a tela separada /assinaturas/:id e clicar em "Baixar documento assinado" lá. Mirror
+  // exato de SignatureDetail.jsx:handleDownload, mesmo endpoint (GET
+  // /envelopes/:id/document — já existente desde a Fase 2.5, sempre prefere
+  // storage_path_assinado; nenhuma rota nova foi criada).
+  async function handleVerDocumentoAssinadoContrato() {
+    setActionError(null);
+    try {
+      const { url } = await api.signatures.document(assinatura.envelope_id);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Documento assinado ainda não disponível.');
+    }
+  }
+
   async function handleEnviarParaAssinaturaContrato() {
     setActionError(null); setBusy(true);
     try {
@@ -581,15 +600,32 @@ export default function ContractDetail() {
               {' — '}Último evento: {assinatura.ultimo_evento?.acao || '—'}
               {assinatura.ultimo_evento?.em && ` (${new Date(assinatura.ultimo_evento.em).toLocaleString('pt-BR')})`}
             </p>
-            {!['ASSINADO', 'VALIDADO', 'CANCELADO'].includes(assinatura.envelope_status) && (
-              <button
-                className="btn btn-danger"
-                style={{ fontSize: '0.8rem', padding: '4px 10px', marginBottom: 12 }}
-                disabled={busy}
-                onClick={handleCancelEnvelope}
-              >
-                Cancelar envelope
-              </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              {assinatura.documento_assinado_disponivel && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                  onClick={handleVerDocumentoAssinadoContrato}
+                >
+                  Ver documento assinado (PDF, com certificado)
+                </button>
+              )}
+              {!['ASSINADO', 'VALIDADO', 'CANCELADO'].includes(assinatura.envelope_status) && (
+                <button
+                  className="btn btn-danger"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                  disabled={busy}
+                  onClick={handleCancelEnvelope}
+                >
+                  Cancelar envelope
+                </button>
+              )}
+            </div>
+            {['ASSINADO', 'VALIDADO'].includes(assinatura.envelope_status) && !assinatura.documento_assinado_disponivel && (
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 12 }}>
+                O PDF final com o certificado de assinatura ainda está sendo gerado — atualize esta página em
+                alguns instantes.
+              </p>
             )}
             {assinatura.envelope_status === 'ERRO_ENVIO' && (
               <div style={{ padding: '10px 12px', borderRadius: 6, background: 'rgba(180,40,40,0.1)', marginBottom: 12 }}>

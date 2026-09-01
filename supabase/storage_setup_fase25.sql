@@ -68,3 +68,88 @@ create policy documentos_bucket_delete
   using (bucket_id = 'documentos' and app.tem_perfil('ADMINISTRADOR'));
 
 comment on policy documentos_bucket_select on storage.objects is 'Fase 2.5 seção 45: barreira de authenticated no bucket como um todo — o controle real de "quem pode ver qual documento" acontece na tabela documentos (RLS) antes da rota Node emitir um signed URL; nenhum objeto deste bucket é público.';
+
+-- Fase 3.11.5 (correção de um 2º bug real de produção — "Falha ao gerar link de
+-- download: Object not found", visto DEPOIS de já corrigido o 404 "Caminho do
+-- documento não encontrado" da mesma fase): as rotas de assinatura/proposta
+-- EXTERNAS (api/routes/signaturesExternal.js, api/routes/proposalsExternal.js)
+-- não têm — e nunca tiveram, por design — uma sessão logada do Supabase Auth;
+-- o signatário/parceiro nunca é um "authenticated" do Supabase, é validado só
+-- pelo token opaco de 64 hex do link (mesmo modelo de "capability token" já
+-- usado em toda essa funcionalidade, seção 45/documentos.md). A política
+-- documentos_bucket_select acima (só `to authenticated`) barra exatamente esse
+-- caso: o cliente anônimo (anonClient(), a única opção nessas rotas) chama
+-- createSignedUrl() para um objeto que EXISTE de verdade no bucket, mas a
+-- policy filtra a linha correspondente em storage.objects antes mesmo da
+-- assinatura ser calculada — e a Storage API do Supabase reporta isso como
+-- "Object not found" (não como um erro de permissão), exatamente o sintoma
+-- reportado. Confirmado por leitura de código: signaturesExternal.js só chama
+-- createSignedUrl() depois de já ter validado o token contra o banco (RPC
+-- SECURITY DEFINER da Fase 3.11.5) — ou seja, a única coisa que faltava era
+-- estender, para o Storage, a mesma decisão de confiança que o banco já toma.
+--
+-- Correção: uma 2ª policy de SELECT, só para `anon`, escopada estritamente ao
+-- prefixo `envelopes/` (onde SOMENTE os PDFs de assinatura — original e
+-- assinado — são gravados; nunca os documentos de proponente, que continuam
+-- em `{parceiro_id}/{tipo}/...` e seguem exigindo authenticated). O nome do
+-- objeto embute um UUID de envelope aleatório (128 bits) mais um timestamp —
+-- inadivinhável na prática — e a rota Node só revela um caminho específico
+-- depois de validar o token do signatário no banco; esta policy não abre o
+-- bucket, só estende para `anon` a MESMA superfície (prefixo `envelopes/`) que
+-- essas rotas já expõem publicamente via signed URL de qualquer forma. Nenhum
+-- outro documento (proponente) fica acessível por este caminho.
+drop policy if exists documentos_bucket_select_envelopes_anon on storage.objects;
+create policy documentos_bucket_select_envelopes_anon
+  on storage.objects for select
+  to anon
+  using (bucket_id = 'documentos' and name like 'envelopes/%');
+
+comment on policy documentos_bucket_select_envelopes_anon on storage.objects is 'Fase 3.11.5: permite ao cliente anônimo (rotas externas de assinatura, sem sessão logada) gerar signed URL para os PDFs de assinatura (prefixo envelopes/) — a autorização real já foi verificada pelo token opaco do signatário antes da rota Node chamar createSignedUrl(); documentos de proponente (fora de envelopes/) continuam exigindo authenticated.';
+
+-- Fase 3.11.5 (correção de um 3º bug real de produção — "link funcionou, mas os
+-- documentos não aparecem assinados"): mesma causa raiz do item 1-B (RLS de
+-- storage.objects barrando `anon`), agora do lado de ESCRITA, não leitura.
+--
+-- `gerarDocumentoAssinadoContrato()` (api/routes/signaturesExternal.js, chamada
+-- dentro de POST /:token/assinar/confirmar, sempre com anonClient() — a rota
+-- nunca tem sessão logada) faz `supabase.storage.from('documentos').upload(...,
+-- { upsert: true })` para gravar o PDF final (com a página de certificado) logo
+-- depois de fechar a assinatura. A policy documentos_bucket_write acima (só
+-- `to authenticated`) bloqueia esse upload — a Storage API rejeita por RLS, o
+-- upload lança erro, o try/catch da rota (propositalmente, para nunca derrubar
+-- uma assinatura já gravada por causa de uma falha de PDF) engole o erro e só
+-- loga — resultado visível: a assinatura em si funciona, mas
+-- documento_assinado_disponivel nunca vira true, porque o PDF final nunca
+-- termina de ser gravado.
+--
+-- Correção: policies de INSERT/UPDATE para `anon`, escopadas de forma BEM mais
+-- estreita que a de leitura acima — nunca o prefixo `envelopes/` inteiro, só o
+-- padrão exato `envelopes/<id>/assinado-<timestamp>.pdf` (o nome que
+-- gerarDocumentoAssinadoContrato() sempre usa). Isso significa que, mesmo
+-- alguém de posse só da anon key (pública, embutida no frontend) tentando
+-- chamar a Storage API diretamente, NUNCA consegue: (a) sobrescrever um
+-- `original-*.pdf` (esse prefixo não bate no padrão — continua protegido só
+-- para authenticated, gravado apenas pela rota interna de criar envelope); (b)
+-- fazer esse upload valer como "o documento assinado oficial" do envelope —
+-- isso exige registrar o caminho via
+-- app.assinatura_externa_documento_assinado_registrar, uma função SECURITY
+-- DEFINER que exige um token de signatário válido e o envelope já
+-- ASSINADO/VALIDADO (mesma trava de todas as outras RPCs externas desta fase).
+-- Na pior hipótese, alguém com a anon key consegue gravar arquivos avulsos
+-- nesse padrão de nome dentro de uma pasta de envelope que ele já saiba o ID
+-- (uso indevido de espaço, nunca falsificação do documento oficial).
+drop policy if exists documentos_bucket_write_assinado_anon on storage.objects;
+create policy documentos_bucket_write_assinado_anon
+  on storage.objects for insert
+  to anon
+  with check (bucket_id = 'documentos' and name similar to 'envelopes/[0-9a-f-]+/assinado-[0-9]+\.pdf');
+
+drop policy if exists documentos_bucket_update_assinado_anon on storage.objects;
+create policy documentos_bucket_update_assinado_anon
+  on storage.objects for update
+  to anon
+  using (bucket_id = 'documentos' and name similar to 'envelopes/[0-9a-f-]+/assinado-[0-9]+\.pdf')
+  with check (bucket_id = 'documentos' and name similar to 'envelopes/[0-9a-f-]+/assinado-[0-9]+\.pdf');
+
+comment on policy documentos_bucket_write_assinado_anon on storage.objects is 'Fase 3.11.5: permite ao cliente anônimo gravar SOMENTE o PDF final de assinatura (padrão exato envelopes/<id>/assinado-<timestamp>.pdf, gerado por gerarDocumentoAssinadoContrato) — nunca original-*.pdf nem qualquer outro nome; registrar esse caminho como o documento oficial ainda exige a RPC com token válido.';
+comment on policy documentos_bucket_update_assinado_anon on storage.objects is 'Fase 3.11.5: companion da policy de insert acima — necessária porque o upload usa upsert:true (o cliente Storage pode fazer UPDATE quando o mesmo caminho já existe).';

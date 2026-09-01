@@ -46,6 +46,38 @@ DEFINER`, escopada ao token (nunca lê a tabela por ID livre), com o wrapper
 essa RPC em vez de ler a tabela direto — mesmo padrão já usado por `assinatura_externa_por_token`
 desde a criação da Fase 3.11.4.
 
+### Item 1-B — 2ª camada do MESMO bug, encontrada no seu reteste real (após aplicar a correção acima)
+
+Depois de aplicada a correção acima, você reportou que o erro mudou de "Caminho do documento
+não encontrado" para **"Falha ao gerar link de download: Object not found"** — ou seja, a
+correção funcionou (a rota agora encontra o caminho salvo no banco), mas surgiu um 2º bloqueio,
+uma camada abaixo: no próprio Supabase **Storage**, não mais no banco.
+
+**Causa raiz**: `supabase/storage_setup_fase25.sql` (Fase 2.5) restringe a leitura de
+`storage.objects` do bucket `documentos` só a `authenticated` — nenhuma policy libera `anon`.
+Isso nunca foi um problema para as telas internas (sempre um usuário logado), mas as rotas
+*externas* de assinatura (`signaturesExternal.js`) nunca têm sessão logada — usam sempre
+`anonClient()`, por design (o signatário não é um usuário do sistema). Quando essa rota chama
+`createSignedUrl()`, a policy filtra a linha do objeto antes mesmo de gerar a assinatura, e a
+Storage API do Supabase responde exatamente com "Object not found" — mesmo o arquivo existindo
+de verdade no bucket. É a mesma classe de bug do item 1 original (RLS bloqueando `anon`), só
+que na camada de Storage em vez da camada de banco — por isso a correção anterior (RPC
+`SECURITY DEFINER`) resolveu a leitura do *caminho*, mas não alcança o Storage, que é um
+serviço à parte, fora do Postgres.
+
+**Correção**: nova policy `documentos_bucket_select_envelopes_anon` em
+`storage.objects`, liberando `select` para `anon` **só** dentro do prefixo `envelopes/` (onde
+exclusivamente os PDFs de assinatura — original e assinado — são gravados; os documentos de
+proponente, em outro prefixo, continuam exigindo `authenticated`, sem nenhuma mudança). A
+autorização real continua sendo o token opaco do signatário, já validado pela rota Node antes
+de sequer chamar `createSignedUrl()` — esta policy só estende ao Storage a mesma decisão de
+confiança que o banco já toma, nunca abre o bucket inteiro.
+
+**Não pôde ser testado neste sandbox** (mesma limitação já documentada: não existe schema
+`storage` no Postgres local) — é SQL para rodar manualmente no SQL Editor do seu projeto
+Supabase real, junto com o restante de `storage_setup_fase25.sql` (idempotente: pode rodar o
+arquivo inteiro de novo sem risco, `drop policy if exists` antes de cada `create`).
+
 ## ITEM 2 — CPF sem validação
 
 ### Causa raiz
@@ -135,6 +167,36 @@ Motor de PDF verificado isoladamente antes de entrar na rota: gerado um PDF de t
 páginas com 2 signatários fictícios, capa e página de certificado conferidas visualmente
 (convertidas para PNG) — ambas corretas.
 
+### Item 4-B — 3º bug real, encontrado no seu reteste ("o link funcionou, mas os documentos não aparecem assinados")
+
+Depois de corrigidos os itens 1 e 1-B, você conseguiu assinar de ponta a ponta — mas o PDF
+final nunca ficou disponível. Mesma causa raiz da família 1-B (RLS de `storage.objects`
+barrando `anon`), só que agora do lado de **escrita**, não leitura.
+
+**Causa raiz**: `gerarDocumentoAssinadoContrato()` faz o upload do PDF final usando o mesmo
+`anonClient()` da rota (nunca há sessão logada nesse fluxo, por design). A policy de INSERT em
+`storage.objects` (Fase 2.5) também é só `to authenticated` — o upload é rejeitado pelo RLS, a
+função lança erro, e o `try/catch` da rota (proposital, para nunca derrubar uma assinatura já
+gravada por causa de uma falha de PDF) só loga e segue — resultado: a assinatura fica gravada e
+válida, mas `documento_assinado_disponivel` nunca vira `true`, porque o PDF final nunca termina
+de subir.
+
+**Correção**: 2 novas policies (INSERT + UPDATE, essa última por causa do `upsert: true` do
+upload) liberando `anon`, mas de forma **bem mais estreita** que a policy de leitura do item
+1-B: nunca o prefixo `envelopes/` inteiro, só o padrão exato de nome que
+`gerarDocumentoAssinadoContrato()` sempre usa — `envelopes/<id>/assinado-<timestamp>.pdf`. Isso
+significa que mesmo alguém de posse só da anon key (pública, embutida no frontend) nunca
+consegue, via Storage direto: sobrescrever um `original-*.pdf` (padrão diferente, continua
+`authenticated`-only) nem fazer um upload valer como "documento oficial assinado" — isso ainda
+exige a RPC `assinatura_externa_documento_assinado_registrar`, que exige um token de
+signatário válido e o envelope já `ASSINADO`/`VALIDADO`. Na pior hipótese, alguém com a anon
+key consegue gravar arquivos avulsos nesse padrão de nome numa pasta de envelope cujo ID já
+conheça — nunca falsificar o documento oficial.
+
+Mesma limitação de ambiente já documentada: não pôde ser testado neste sandbox (sem schema
+`storage` local) — é SQL para rodar manualmente, junto com o restante de
+`storage_setup_fase25.sql` (idempotente).
+
 ---
 
 ## TESTE REAL: PASS
@@ -186,23 +248,46 @@ já existe e já funciona em produção (é onde a minuta original já é salva 
 provavelmente sim), os itens 1 e 4 devem funcionar de ponta a ponta assim que o deploy sair;
 se não, é a única peça que falta confirmar.
 
+### Item 4-C — "não tem local para o administrador abrir cópias do contrato assinado dentro do sistema"
+
+Gap real, separado dos anteriores — e da mesma classe já documentada e corrigida uma vez antes
+para o botão "Cancelar envelope" (Fase 3.11.4, seção "4 gaps de UI"): a funcionalidade de abrir
+o PDF assinado por um ADMINISTRADOR **já existia** (rota interna `GET
+/api/signatures/envelopes/:id/document`, de volta à Fase 2.5 — sempre autenticada, nunca
+passou pelo problema de RLS do `anon`, então já funciona assim que o PDF final existir), mas só
+era acessível na tela separada `/assinaturas/:id` — nunca no painel embutido de
+`ContractDetail.jsx`, que é de onde você estava operando. O painel embutido só mostrava o texto
+"documento assinado validado ✓", sem nenhum botão para efetivamente abrir o arquivo.
+
+**Correção**: botão **"Ver documento assinado (PDF, com certificado)"** adicionado ao painel
+embutido, ao lado de "Cancelar envelope", visível sempre que `documento_assinado_disponivel`
+for verdadeiro — mirror exato do botão equivalente que já existia em `SignatureDetail.jsx`
+(mesmo endpoint, nenhuma rota nova). Quando o envelope já está `ASSINADO`/`VALIDADO` mas o PDF
+final ainda não ficou pronto, uma nota explica que ele está sendo gerado.
+
 ---
 
 ## O que falta para "resolvido" de fato
 
-1. **Dar `git commit` + `push`** dos 9 arquivos alterados/novos desta fase (já sincronizados na
-   sua pasta OneDrive) — não posso fazer isso a partir deste ambiente.
+1. **Dar `git commit` + `push`** dos 11 arquivos alterados/novos desta fase (já sincronizados
+   na sua pasta OneDrive, incluindo o novo botão em `web/src/pages/ContractDetail.jsx` — item
+   4-C) — não posso fazer isso a partir deste ambiente.
 2. **Aplicar a migration `20261008090000_phase_3_11_05_correcoes_pos_deploy.sql`** em produção
    (Supabase) — mesmo processo já usado nas fases anteriores.
-3. **Redeploy** Railway (backend) + Vercel (frontend) — nenhuma variável de ambiente nova é
+3. **Rodar de novo `supabase/storage_setup_fase25.sql` inteiro no SQL Editor do seu projeto
+   Supabase** (itens 1-B e 4-B acima) — é a única forma de aplicar as novas policies
+   (`documentos_bucket_select_envelopes_anon` para o "Object not found",
+   `documentos_bucket_write_assinado_anon`/`..._update_assinado_anon` para o PDF final nunca
+   ficar disponível); o arquivo é idempotente, pode rodar tudo de novo sem risco às policies já
+   existentes.
+4. **Redeploy** Railway (backend) + Vercel (frontend) — nenhuma variável de ambiente nova é
    necessária (reaproveita `OTP_HASH_PEPPER`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, todas já
    configuradas desde a Fase 3.11.3/3.11.4).
-4. **Confirmar que o bucket de Storage `documentos` está de fato acessível em produção** — é a
-   única peça que este sandbox não consegue provar (ver limitação acima).
-5. Um novo teste manual real, ponta a ponta, depois do redeploy: assinar um contrato de teste,
-   digitar um CPF inválido de propósito (deve bloquear), confirmar o OTP chegando por e-mail,
-   e — depois de assinado — abrir o PDF final e conferir que ele mostra a página de certificado
-   com nome/CPF/data/IP corretos.
+5. Um novo teste manual real, ponta a ponta, depois do redeploy + da policy de Storage: abrir
+   "Revisar documento" antes de assinar (deve abrir o PDF, não mais dar erro), assinar um
+   contrato de teste, digitar um CPF inválido de propósito (deve bloquear), confirmar o OTP
+   chegando por e-mail, e — depois de assinado — abrir o PDF final e conferir que ele mostra a
+   página de certificado com nome/CPF/data/IP corretos.
 
 Até esses itens serem concluídos por você, este relatório considera os 4 problemas
 **corrigidos e provados no nível de código e de teste automatizado** (137/137), mas a
