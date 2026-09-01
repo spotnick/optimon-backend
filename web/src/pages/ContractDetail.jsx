@@ -497,12 +497,40 @@ export default function ContractDetail() {
           </>
         ) : (
           <>
-            <p style={{ fontSize: 13, marginBottom: 8 }}>
+            {/* Fase 3.11.4 (seção 16): "ENVIADO" ≠ "ENTREGUE" — a linha abaixo mostra
+                Envelope/Provedor/Status/Criado em/Enviado em/Último evento em nível de
+                envelope, ANTES da tabela por signatário (que já detalha entrega/abertura/
+                assinatura desde a Fase 3.11.2). */}
+            <p style={{ fontSize: 13, marginBottom: 4 }}>
               Envelope: <Link className="link-tab" to={`/assinaturas/${assinatura.envelope_id}`}>{assinatura.envelope_id.slice(0, 8)}…</Link>
+              {' — '}provedor: <strong>{assinatura.provider_nome || '—'}</strong>
               {' — '}status: <span className="badge">{assinatura.envelope_status}</span>
               {assinatura.documento_assinado_disponivel && <span> · documento assinado validado ✓</span>}
-              {assinatura.erro_mensagem && <span style={{ color: 'var(--text-danger, #b42828)' }}> · erro: {assinatura.erro_mensagem}</span>}
+              {assinatura.erro_mensagem && assinatura.envelope_status !== 'ERRO_ENVIO' && (
+                <span style={{ color: 'var(--text-danger, #b42828)' }}> · erro: {assinatura.erro_mensagem}</span>
+              )}
             </p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Criado em: {assinatura.criado_em ? new Date(assinatura.criado_em).toLocaleString('pt-BR') : '—'}
+              {' — '}Enviado em: {assinatura.enviado_em ? new Date(assinatura.enviado_em).toLocaleString('pt-BR') : '—'}
+              {' — '}Último evento: {assinatura.ultimo_evento?.acao || '—'}
+              {assinatura.ultimo_evento?.em && ` (${new Date(assinatura.ultimo_evento.em).toLocaleString('pt-BR')})`}
+            </p>
+            {assinatura.envelope_status === 'ERRO_ENVIO' && (
+              <div style={{ padding: '10px 12px', borderRadius: 6, background: 'rgba(180,40,40,0.1)', marginBottom: 12 }}>
+                <strong style={{ color: 'var(--text-danger, #b42828)' }}>⚠️ FALHA NO ENVIO</strong>
+                <div style={{ fontSize: 13, marginTop: 4 }}>
+                  O envio da assinatura não foi confirmado pelo provedor. "Enviado" nunca deve ser lido como
+                  "entregue" — veja o status por signatário abaixo e use "Reenviar" quando aplicável.
+                </div>
+                {role === 'ADMINISTRADOR' && assinatura.erro_mensagem && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>Ver detalhes técnicos</summary>
+                    <div style={{ fontSize: 12, fontFamily: 'monospace', marginTop: 4, whiteSpace: 'pre-wrap' }}>{assinatura.erro_mensagem}</div>
+                  </details>
+                )}
+              </div>
+            )}
             {/* Fase 3.11.2 (seções 4/5): status independente por signatário — nunca só
                 "ENVIADO" tratado como prova de entrega — com data/hora de cada etapa e
                 opção de reenvio (nunca duplica quem já assinou). */}

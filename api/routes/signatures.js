@@ -22,6 +22,17 @@ const { clientForRequest, anonClient } = require('../lib/supabaseClient');
 const { buildProvider } = require('../lib/signatureProvider');
 const { generateProposalPdf } = require('../lib/pdfProposal');
 const { generateContratoPdf } = require('../lib/pdfContrato');
+const { buildSignatureLinkNotifier } = require('../lib/signatureLinkNotifier');
+const { resolvePublicAppBaseUrl } = require('./users');
+
+const signatureLinkNotifier = buildSignatureLinkNotifier();
+
+function maskEmail(email) {
+  const [user, domain] = String(email || '').split('@');
+  if (!domain) return '***';
+  const visible = user.slice(0, 2);
+  return `${visible}${'*'.repeat(Math.max(user.length - visible.length, 1))}@${domain}`;
+}
 
 const router = express.Router();
 const webhookRouter = express.Router();
@@ -330,15 +341,143 @@ router.post('/envelopes/:id/signers', async (req, res) => {
   return res.status(201).json(signer);
 });
 
-// POST /api/signatures/envelopes/:id/send — sendForSignature (seção 5).
+// Fase 3.11.4 (seção 3/11): busca numero/proponente reais para o e-mail — nunca inventa,
+// nunca inclui piso/margem/governança (só o que já é público na capa do documento).
+async function carregarInfoDocumento(supabase, envelopeRow) {
+  if (envelopeRow.tipo_documento === 'PROPOSTA' && envelopeRow.proposta_id) {
+    const { data } = await supabase.from('propostas_comerciais').select('numero, parceiro_nome_capa, parceiro_id').eq('id', envelopeRow.proposta_id).maybeSingle();
+    let proponente = data?.parceiro_nome_capa || null;
+    if (!proponente && data?.parceiro_id) {
+      const { data: parceiro } = await supabase.from('parceiros').select('nome_fantasia, razao_social').eq('id', data.parceiro_id).maybeSingle();
+      proponente = parceiro?.nome_fantasia || parceiro?.razao_social || null;
+    }
+    return { numero: data?.numero || null, proponente };
+  }
+  if (envelopeRow.tipo_documento === 'CONTRATO' && envelopeRow.contrato_id) {
+    const { data } = await supabase.from('contratos').select('numero, parceiro_id').eq('id', envelopeRow.contrato_id).maybeSingle();
+    let proponente = null;
+    if (data?.parceiro_id) {
+      const { data: parceiro } = await supabase.from('parceiros').select('nome_fantasia, razao_social').eq('id', data.parceiro_id).maybeSingle();
+      proponente = parceiro?.nome_fantasia || parceiro?.razao_social || null;
+    }
+    return { numero: data?.numero || null, proponente };
+  }
+  return { numero: null, proponente: null };
+}
+
+// Fase 3.11.4 (seções 3/6/11/12): ENVIO REAL — gera um token/link individual por
+// signatário (nunca reaproveita um link antigo) e chama api/lib/signatureLinkNotifier.js
+// (Resend real, ou DEV_LOG fora de produção). Cada resultado é gravado no banco através
+// de pricing_signature_signer_registrar_envio — status ENVIADO só é gravado DEPOIS que o
+// Resend de fato aceitou o e-mail (tem email_id); qualquer falha vira ERRO_ENVIO com a
+// mensagem real, nunca um "ENVIADO" silencioso. É exatamente a causa raiz corrigida nesta
+// fase (ver cabeçalho da migration 20261006090000).
+async function enviarLinksAssinatura(supabase, envelopeRow, signers) {
+  const docInfo = await carregarInfoDocumento(supabase, envelopeRow);
+  // Fase 3.11.4 (seção 12): mesma URL base já usada para o e-mail de convite/redefinição
+  // de senha (PUBLIC_APP_URL) — nunca uma 2ª variável de ambiente para a mesma coisa.
+  const baseUrl = resolvePublicAppBaseUrl();
+  const resultados = [];
+
+  for (const signer of signers) {
+    await logSemanticEventBestEffort(supabase, {
+      p_entidade: 'signature_signers', p_entidade_id: signer.id, p_acao: 'SIGNATURE_SEND_REQUESTED',
+      p_motivo: `Solicitação de envio do link de assinatura para ${maskEmail(signer.email)}.`,
+    });
+
+    if (!baseUrl) {
+      const detalhe = 'CONFIGURACAO_INVALIDA: PUBLIC_APP_URL (ou CORS_ALLOWED_ORIGINS) não está configurada neste deploy — o link de assinatura nunca é enviado sem uma URL pública real (nunca inventada).';
+      console.error(`[signature-email] ${detalhe} signer_id=${signer.id}`);
+      await supabase.rpc('pricing_signature_signer_registrar_envio', { p_signer_id: signer.id, p_sucesso: false, p_erro_mensagem: detalhe });
+      resultados.push({ signerId: signer.id, ok: false });
+      continue;
+    }
+
+    let linkInfo;
+    try {
+      const { data, error } = await supabase.rpc('pricing_signature_signer_gerar_link', { p_signer_id: signer.id });
+      if (error) throw error;
+      linkInfo = data;
+    } catch (err) {
+      await supabase.rpc('pricing_signature_signer_registrar_envio', { p_signer_id: signer.id, p_sucesso: false, p_erro_mensagem: `Falha ao gerar link de acesso: ${err.message}` });
+      resultados.push({ signerId: signer.id, ok: false });
+      continue;
+    }
+
+    const link = `${baseUrl}/assinar/${linkInfo.token}`;
+    try {
+      const envio = await signatureLinkNotifier.sendSignatureLink({
+        email: signer.email, nome: signer.nome, tipoDocumento: envelopeRow.tipo_documento,
+        numeroDocumento: docInfo.numero, proponente: docInfo.proponente, link, expiraDias: 30, signerId: signer.id,
+      });
+      // Fase 3.11.4 (seção 11, correção de um bug real encontrado na própria implementação
+      // desta fase): "ENVIADO" só é gravado quando o Resend de fato aceitou o envio
+      // (envio.enviado === true — canal RESEND). O fallback DEV_LOG (sem RESEND_API_KEY
+      // configurada, fora de produção) NUNCA envia e-mail de verdade — mesmo não lançando
+      // erro, ele deve ir para ERRO_ENVIO, exatamente como a Fase 3.11.3 já faz para o OTP
+      // da proposta (lá o email_status fica em EMAIL_SOLICITADO, nunca EMAIL_ACEITO_PELO_
+      // RESEND, quando o canal é DEV_LOG — ver api/routes/proposalsExternal.js). O link real
+      // continua disponível no log do servidor (console.log abaixo) para teste manual local.
+      if (envio.enviado === true) {
+        await supabase.rpc('pricing_signature_signer_registrar_envio', {
+          p_signer_id: signer.id, p_sucesso: true, p_email_provider_id: envio.emailId || null, p_email_canal: envio.canal,
+        });
+        console.log(`[signature-email] signer_id=${signer.id} canal=${envio.canal} email_id=${envio.emailId || '(n/a)'} destinatario=${maskEmail(signer.email)} status=ENVIADO`);
+        resultados.push({ signerId: signer.id, ok: true });
+      } else {
+        const detalhe = envio.aviso || `Canal ${envio.canal} não confirma envio real de e-mail — nunca marcado como ENVIADO sem essa confirmação.`;
+        await supabase.rpc('pricing_signature_signer_registrar_envio', {
+          p_signer_id: signer.id, p_sucesso: false, p_email_provider_id: envio.emailId || null, p_email_canal: envio.canal, p_erro_mensagem: detalhe,
+        });
+        console.log(`[signature-email] signer_id=${signer.id} canal=${envio.canal} destinatario=${maskEmail(signer.email)} status=ERRO_ENVIO (${detalhe}) link_local=${link}`);
+        resultados.push({ signerId: signer.id, ok: false });
+      }
+    } catch (sendErr) {
+      const detalhe = sendErr?.message || 'Falha desconhecida ao enviar e-mail.';
+      console.error(`[signature-email] falha ao enviar link para signer_id=${signer.id} (destinatario mascarado=${maskEmail(signer.email)}):`, detalhe);
+      await supabase.rpc('pricing_signature_signer_registrar_envio', { p_signer_id: signer.id, p_sucesso: false, p_erro_mensagem: detalhe });
+      resultados.push({ signerId: signer.id, ok: false });
+    }
+  }
+
+  return resultados;
+}
+
+// POST /api/signatures/envelopes/:id/send — sendForSignature (seção 5), corrigida na
+// Fase 3.11.4: para provider tipo=OPTIMON_INTERNO_RESEND, faz o envio REAL por
+// signatário (ver enviarLinksAssinatura acima) e só marca ENVIADO no envelope se pelo
+// menos 1 envio foi de fato aceito pelo Resend (pricing_signature_envelope_finalizar_
+// envio) — nunca mais a marcação incondicional que causou o bug real relatado (envelope
+// 571aa526). Provedores legados (MOCK/ICP_BRASIL_PROVEDOR_EXTERNO) preservam o
+// comportamento original (seção 17: não quebrar o que já funciona).
 router.post('/envelopes/:id/send', async (req, res) => {
   const supabase = clientForRequest(req.userJwt);
-  const { data: envelopeRow, error: envError } = await supabase.from('signature_envelopes').select('provider_id, provider_envelope_id').eq('id', req.params.id).maybeSingle();
+  const { data: envelopeRow, error: envError } = await supabase.from('signature_envelopes')
+    .select('id, tipo_documento, proposta_id, contrato_id, provider_id, provider_envelope_id, status')
+    .eq('id', req.params.id).maybeSingle();
   if (envError) return handleError(res, envError);
   if (!envelopeRow) return res.status(404).json({ error: `Envelope ${req.params.id} não encontrado.` });
 
+  const { data: providerRow, error: providerError } = await supabase.from('signature_providers').select('*').eq('id', envelopeRow.provider_id).maybeSingle();
+  if (providerError) return handleError(res, providerError);
+  if (!providerRow) return res.status(404).json({ error: 'Provedor de assinatura configurado no envelope não foi encontrado.' });
+
+  if (providerRow.tipo === 'OPTIMON_INTERNO_RESEND') {
+    const { data: signers, error: signersError } = await supabase.from('signature_signers').select('id, nome, email').eq('envelope_id', envelopeRow.id);
+    if (signersError) return handleError(res, signersError);
+    if (!signers || signers.length === 0) {
+      return res.status(400).json({ error: 'SEM_SIGNATARIOS: adicione pelo menos um signatário antes de enviar para assinatura.' });
+    }
+
+    await enviarLinksAssinatura(supabase, envelopeRow, signers);
+
+    const { data, error } = await supabase.rpc('pricing_signature_envelope_finalizar_envio', { p_envelope_id: envelopeRow.id });
+    if (error) return handleError(res, error);
+    return res.json(data);
+  }
+
+  // Provedores legados (seção 17 — preserva o que já funcionava antes desta fase).
   try {
-    const { data: providerRow } = await supabase.from('signature_providers').select('*').eq('id', envelopeRow.provider_id).maybeSingle();
     const provider = buildProvider(providerRow);
     await provider.sendForSignature(envelopeRow.provider_envelope_id);
   } catch (err) {
@@ -351,10 +490,14 @@ router.post('/envelopes/:id/send', async (req, res) => {
 });
 
 // POST /api/signatures/envelopes/:id/signers/:signerId/resend — "REENVIAR ASSINATURA"
-// (Fase 3.11.2, seção 6 do pedido de correção). Nunca duplica assinatura (bloqueado no
-// banco — app.reenviar_assinatura_signatario recusa signatário já ASSINADO). Best-effort
-// no provedor mock, mesmo padrão de POST /envelopes/:id/signers acima — o estado de
-// verdade é sempre o do OptiMon.
+// (Fase 3.11.2, seção 6; corrigida na Fase 3.11.4, seção 10 do pedido novo: "o botão
+// REENVIAR deve realmente chamar a API do provedor... se o provedor retornar erro,
+// status: ERRO_ENVIO"). pricing_signature_signer_resend grava ENVIADO de forma otimista
+// (compatibilidade com o provider MOCK legado) — para OPTIMON_INTERNO_RESEND, o envio
+// real É TENTADO EM SEGUIDA e pricing_signature_signer_registrar_envio SEMPRE sobrescreve
+// com o resultado verdadeiro (ENVIADO só se o Resend aceitou; ERRO_ENVIO com a mensagem
+// real caso contrário) — o estado final nunca mente, mesmo que o estado intermediário
+// dentro desta mesma requisição tenha sido otimista por um instante.
 router.post('/envelopes/:envelopeId/signers/:signerId/resend', async (req, res) => {
   const { motivo } = req.body || {};
   const supabase = clientForRequest(req.userJwt);
@@ -365,18 +508,30 @@ router.post('/envelopes/:envelopeId/signers/:signerId/resend', async (req, res) 
   });
   if (error) return handleError(res, error);
 
+  const { data: envelopeRow } = await supabase.from('signature_envelopes')
+    .select('id, tipo_documento, proposta_id, contrato_id, provider_id, provider_envelope_id')
+    .eq('id', req.params.envelopeId).maybeSingle();
+  if (!envelopeRow) return res.json(signer);
+
+  const { data: providerRow } = await supabase.from('signature_providers').select('*').eq('id', envelopeRow.provider_id).maybeSingle();
+  if (!providerRow) return res.json(signer);
+
+  if (providerRow.tipo === 'OPTIMON_INTERNO_RESEND') {
+    await enviarLinksAssinatura(supabase, envelopeRow, [{ id: signer.id, nome: signer.nome, email: signer.email }]);
+    const { data: atualizado } = await supabase.from('signature_signers')
+      .select('id, nome, email, papel, ordem, obrigatorio, status, enviado_em, entregue_em, aberto_em, assinado_em, erro_mensagem, reenvios_count')
+      .eq('id', signer.id).maybeSingle();
+    return res.json(atualizado || signer);
+  }
+
+  // Provedores legados — best-effort no mock, mesmo comportamento original (seção 17).
   try {
-    const { data: envelopeRow } = await supabase.from('signature_envelopes').select('provider_id, provider_envelope_id').eq('id', req.params.envelopeId).maybeSingle();
-    if (envelopeRow?.provider_envelope_id) {
-      const { data: providerRow } = await supabase.from('signature_providers').select('*').eq('id', envelopeRow.provider_id).maybeSingle();
-      if (providerRow) {
-        const provider = buildProvider(providerRow);
-        await provider.sendForSignature(envelopeRow.provider_envelope_id);
-      }
+    if (envelopeRow.provider_envelope_id) {
+      const provider = buildProvider(providerRow);
+      await provider.sendForSignature(envelopeRow.provider_envelope_id);
     }
   } catch (_err) {
-    // Falha do provedor mock não impede o reenvio local — best-effort, mesmo padrão do
-    // resto deste arquivo.
+    // Best-effort no mock legado — nunca bloqueia o reenvio local.
   }
 
   return res.json(signer);

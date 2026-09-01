@@ -122,20 +122,28 @@ function handleError(res, error) {
 // fallback agora prefere a primeira origem de CORS_ALLOWED_ORIGINS que NÃO pareça
 // localhost, em vez de sempre pegar a primeira da lista — nunca mais escolhe
 // silenciosamente um endereço de desenvolvimento para um e-mail real.
-function frontendRedirectUrl() {
+// Fase 3.11.4: extraído para função própria (antes vivia só dentro de
+// frontendRedirectUrl) — api/routes/signatures.js reaproveita ESTA MESMA resolução para
+// montar o link de assinatura (nunca uma 2ª variável de ambiente para "a mesma URL base
+// do frontend" — seção 12 do pedido: "não criar uma segunda solução sem necessidade").
+function resolvePublicAppBaseUrl() {
   const explicit = (process.env.PUBLIC_APP_URL || '').trim();
   const origins = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
   const nonLocal = origins.find((o) => !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o));
   // BUG REAL encontrado em produção: PUBLIC_APP_URL configurado com barra no final
-  // (ex.: "https://optimon-backend-roan.vercel.app/") produzia
-  // ".../definir-senha" com barra dupla ("...app//definir-senha"). Remove qualquer
-  // barra final antes de concatenar o caminho — nunca confia que a variável de
-  // ambiente foi digitada sem barra no final.
+  // (ex.: "https://optimon-backend-roan.vercel.app/") produzia URLs com barra dupla.
+  // Remove qualquer barra final antes de concatenar o caminho — nunca confia que a
+  // variável de ambiente foi digitada sem barra no final.
   const base = (explicit || nonLocal || origins[0] || '').replace(/\/+$/, '') || undefined;
   if (!explicit && base) {
     // eslint-disable-next-line no-console
-    console.warn(`[optimon-api] PUBLIC_APP_URL não configurado — usando "${base}" (derivado de CORS_ALLOWED_ORIGINS) como URL de redirecionamento de convite/redefinição de senha. Configure PUBLIC_APP_URL explicitamente para evitar ambiguidade.`);
+    console.warn(`[optimon-api] PUBLIC_APP_URL não configurado — usando "${base}" (derivado de CORS_ALLOWED_ORIGINS) como URL base do frontend. Configure PUBLIC_APP_URL explicitamente para evitar ambiguidade.`);
   }
+  return base;
+}
+
+function frontendRedirectUrl() {
+  const base = resolvePublicAppBaseUrl();
   return base ? `${base}/definir-senha` : undefined;
 }
 
@@ -833,6 +841,9 @@ module.exports = router;
 // comum, então anexar uma propriedade nela não afeta `app.use('/api/users', ...)` em
 // nada; nenhuma outra rota importa isto.
 module.exports.frontendRedirectUrl = frontendRedirectUrl;
+// Fase 3.11.4: reaproveitada por api/routes/signatures.js para montar o link de
+// assinatura — mesma resolução de URL base, nunca uma 2ª variável de ambiente.
+module.exports.resolvePublicAppBaseUrl = resolvePublicAppBaseUrl;
 // Exposta pelo mesmo motivo, agora para tests/run_tests_fase253.sh testar
 // diretamente o conserto da causa raiz (string vazia → null) sem precisar de
 // HTTP/Postgres reais.

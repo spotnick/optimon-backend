@@ -25,6 +25,7 @@ import SignatureSettings from './pages/SignatureSettings';
 import Reports from './pages/Reports';
 import Alerts from './pages/Alerts';
 import PartnerExternalProposal from './pages/PartnerExternalProposal';
+import SignExternal from './pages/SignExternal';
 
 export default function App() {
   return (
@@ -40,6 +41,10 @@ export default function App() {
           Autenticação é o próprio token de alta entropia na URL, validado no servidor a
           cada chamada (ver web/src/pages/PartnerExternalProposal.jsx). */}
       <Route path="/parceiro/proposta/:token" element={<PartnerExternalProposal />} />
+      {/* Fase 3.11.4 (seções 12-13): link individual de assinatura eletrônica — SEM
+          login, mesmo padrão de /parceiro/proposta/:token acima (token opaco validado no
+          servidor, nunca um JWT — ver web/src/pages/SignExternal.jsx). */}
+      <Route path="/assinar/:token" element={<SignExternal />} />
       <Route
         element={
           <ProtectedRoute>

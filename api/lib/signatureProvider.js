@@ -42,6 +42,97 @@ class ElectronicSignatureProvider {
 }
 
 const crypto = require('crypto');
+const { buildEmailProvider } = require('./emailService');
+
+/**
+ * Fase 3.11.4: implementação real de "provedor" para a arquitetura decidida pelo usuário
+ * (seção 12 do pedido de correção 3.11.4: "se o projeto tiver sido desenhado para o
+ * OptiMon enviar os links por Resend, documentar claramente essa arquitetura e
+ * implementá-la de forma consistente" — confirmado explicitamente, nenhum provedor
+ * ICP-Brasil real está contratado). O OptiMon é o próprio orquestrador: `createEnvelope`
+ * só calcula hash/gera um ID interno (nunca fala com rede — não há "criar envelope" em
+ * nenhum provedor terceirizado); o envio real de e-mail por signatário acontece em
+ * api/routes/signatures.js (POST /envelopes/:id/send), usando
+ * api/lib/signatureLinkNotifier.js diretamente (fan-out por signatário, cada um com seu
+ * próprio link/token) — não cabe no método `sendForSignature(providerEnvelopeId)` de um
+ * único ID, que é uma forma pensada para um provedor terceirizado. Este objeto ainda
+ * implementa a interface inteira (com no-ops honestos onde não se aplica) para nunca
+ * quebrar o resto do código que já espera um `ElectronicSignatureProvider`.
+ */
+class ResendInternoProvider extends ElectronicSignatureProvider {
+  async createEnvelope({ documentBuffer, fileName }) {
+    const hash = documentBuffer ? crypto.createHash('sha256').update(documentBuffer).digest('hex') : null;
+    const providerEnvelopeId = `OPTIMON-ENV-${crypto.randomUUID()}`;
+    return { providerEnvelopeId, hashOriginal: hash, fileName: fileName || null, status: 'CRIADO' };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async addSigner(providerEnvelopeId, { email, order }) {
+    // No-op honesto: este "provedor" não fala com nenhuma rede para cadastrar
+    // signatário — o link individual só é gerado/enviado em POST /envelopes/:id/send
+    // (ver api/routes/signatures.js), signatário por signatário.
+    return { providerSignerId: null, providerEnvelopeId, email, order, status: 'AGUARDANDO_ENVIO' };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async sendForSignature() {
+    throw new Error('NAO_SUPORTADO: este provedor envia por signatário (fan-out de link individual via Resend) — use o fluxo dedicado em POST /envelopes/:id/send, nunca sendForSignature(envelopeId) genérico.');
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async getEnvelopeStatus(providerEnvelopeId) {
+    return { providerEnvelopeId, status: 'AGUARDANDO' };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async getSignerStatus(providerEnvelopeId, signerId) {
+    return { providerEnvelopeId, signerId, status: 'PENDENTE' };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async cancelEnvelope(providerEnvelopeId, reason) {
+    return { providerEnvelopeId, status: 'CANCELADO', motivo: reason };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async downloadSignedDocument() {
+    throw new Error('NAO_SUPORTADO: este provedor não hospeda arquivo — o documento assinado é o próprio original + evidências (ip/user-agent/timestamp) registradas em signature_signers/documentos_assinados.');
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async getAuditTrail(providerEnvelopeId) {
+    return { providerEnvelopeId, eventos: [] };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async validateSignature(providerEnvelopeId) {
+    return { providerEnvelopeId, valido: true, politica: 'ASSINATURA_ELETRONICA_SIMPLES' };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async getCertificateInfo(providerEnvelopeId, signerId) {
+    return {
+      providerEnvelopeId,
+      signerId,
+      tipo: 'ASSINATURA_ELETRONICA_SIMPLES',
+      emissor: 'OptiMon (não é uma Autoridade Certificadora — link único enviado por e-mail via Resend, IP e timestamp como evidência; ver Fase 3.11.4).',
+    };
+  }
+
+  // Diagnóstico honesto: delega para o testConnection() real do client Resend (mesmo
+  // client já testado na Fase 3.11.3) — nunca finge testar uma rede que não usa aqui.
+  // eslint-disable-next-line class-methods-use-this
+  async testConnection() {
+    const emailProvider = buildEmailProvider();
+    if (!emailProvider) {
+      return {
+        ok: process.env.APP_ENVIRONMENT !== 'production',
+        mensagem: 'RESEND_API_KEY/RESEND_FROM_EMAIL não configuradas neste ambiente — o envio real de link de assinatura vai falhar em produção (nunca finge sucesso; ver api/lib/signatureLinkNotifier.js).',
+      };
+    }
+    return emailProvider.testConnection();
+  }
+}
 
 /**
  * Implementação MOCK de HOMOLOGAÇÃO (seção 6/50/51). Nunca deve ser usada como
@@ -149,7 +240,10 @@ function buildProvider(providerRow) {
   if (providerRow.tipo === 'ICP_BRASIL_HOMOLOGACAO_MOCK') {
     return new MockHomologacaoProvider({ ambiente: providerRow.ambiente });
   }
-  throw new Error(`PROVEDOR_NAO_IMPLEMENTADO: tipo "${providerRow.tipo}" não tem integração de rede implementada nesta entrega — só ICP_BRASIL_HOMOLOGACAO_MOCK. Ver relatório final, seção "Limitações".`);
+  if (providerRow.tipo === 'OPTIMON_INTERNO_RESEND') {
+    return new ResendInternoProvider();
+  }
+  throw new Error(`PROVEDOR_NAO_IMPLEMENTADO: tipo "${providerRow.tipo}" não tem integração de rede implementada nesta entrega — só ICP_BRASIL_HOMOLOGACAO_MOCK e OPTIMON_INTERNO_RESEND. Ver relatório final, seção "Limitações".`);
 }
 
-module.exports = { ElectronicSignatureProvider, MockHomologacaoProvider, buildProvider };
+module.exports = { ElectronicSignatureProvider, MockHomologacaoProvider, ResendInternoProvider, buildProvider };

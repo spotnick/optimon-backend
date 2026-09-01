@@ -20,6 +20,7 @@ const infraRoutes = require('./routes/infra');
 const simulationsRoutes = require('./routes/simulations');
 const proposalsRoutes = require('./routes/proposals');
 const proposalsExternalRoutes = require('./routes/proposalsExternal');
+const signaturesExternalRoutes = require('./routes/signaturesExternal');
 const partnersRoutes = require('./routes/partners');
 const auditRoutes = require('./routes/audit');
 const usersRoutes = require('./routes/users');
@@ -90,6 +91,13 @@ app.use(
 // bloquearia antes mesmo de chegar aqui. A credencial aqui é o token opaco da URL,
 // nunca um JWT (ver api/routes/proposalsExternal.js).
 app.use('/api/proposals/external', proposalsExternalRoutes);
+
+// Fase 3.11.4 (seções 12-13): área externa do signatário — link individual de
+// assinatura eletrônica. Mesmo motivo/mesmo padrão da área externa do parceiro acima:
+// precisa ficar ANTES de `app.use('/api/signatures', requireAuth, ...)` abaixo, senão o
+// middleware de auth bloquearia antes de chegar aqui. A credencial é o token opaco da
+// URL (signature_signers.token_acesso), nunca um JWT.
+app.use('/api/signatures/external', signaturesExternalRoutes);
 
 // Toda rota de negócio exige um usuário autenticado — nunca anônimo, nunca service_role
 // (seção 33/53). RBAC/RLS de verdade acontecem no Postgres; esta API só encaminha o JWT.

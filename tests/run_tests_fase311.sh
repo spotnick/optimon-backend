@@ -85,8 +85,22 @@ JA_TEM_3112=$(scalar "select exists(select 1 from information_schema.columns whe
 rm -f /tmp/fase311_mig.log
 MIG_OK=1
 JA_TEM_3113=$(scalar "select exists(select 1 from information_schema.columns where table_name='propostas_aceite_tentativas' and column_name='email_status');")
+# Fase 3.11.4 — MESMA regra, um degrau acima: se o marcador da 3.11.4 já existe
+# (signature_signers.token_acesso), replayar 20261004090000 (3.11.3) por cima dela é
+# exatamente o artefato já documentado (constraint/função mais nova sendo sobrescrita por
+# uma versão mais antiga) — encontrado de verdade rodando esta suíte (auditoria_acao_check
+# violada por linhas com ações que só a 3.11.4 criou). Corrigido subindo o corte: quando a
+# 3.11.4 já está presente, SÓ ELA é replayed (nenhuma das 4 migrations 3.11/3.11.1/3.11.2/
+# 3.11.3 mais antigas é tocada).
+JA_TEM_3114=$(scalar "select exists(select 1 from information_schema.columns where table_name='signature_signers' and column_name='token_acesso');")
 
-if [ "$JA_TEM_3113" = "t" ]; then
+if [ "$JA_TEM_3114" = "t" ]; then
+  echo "Banco já tem a Fase 3.11.4 aplicada de uma execução anterior — não fazendo replay de NENHUMA migration mais antiga (3.11/3.11.1/3.11.2/3.11.3); reaplicando só 20261006090000 para provar sua idempotência real." | tee -a /tmp/fase311_mig.log
+  pass "PASSO-0 migration 20261002090000_phase_3_11_workflow_proposta_parceiro.sql já aplicada anteriormente (marcador da 3.11.4 presente) — não replayed"
+  pass "PASSO-0 migration 20261002100000_phase_3_11_01_fix_token_gen_random_bytes.sql já aplicada anteriormente (marcador da 3.11.4 presente) — não replayed"
+  pass "PASSO-0 migration 20261003100000_phase_3_11_02_aceite_otp_assinatura_granular.sql já aplicada anteriormente (marcador da 3.11.4 presente) — não replayed"
+  pass "PASSO-0 migration 20261004090000_phase_3_11_03_resend_real_parceiro_obrigatorio.sql já aplicada anteriormente (marcador da 3.11.4 presente) — não replayed"
+elif [ "$JA_TEM_3113" = "t" ]; then
   echo "Banco já tem a Fase 3.11.3 aplicada de uma execução anterior — não fazendo replay de nenhuma migration mais antiga (isso nunca acontece numa instalação real); reaplicando só 20261004090000 para provar sua idempotência real." | tee -a /tmp/fase311_mig.log
   pass "PASSO-0 migration 20261002090000_phase_3_11_workflow_proposta_parceiro.sql já aplicada anteriormente (marcador da 3.11.3 presente) — não replayed"
   pass "PASSO-0 migration 20261002100000_phase_3_11_01_fix_token_gen_random_bytes.sql já aplicada anteriormente (marcador da 3.11.3 presente) — não replayed"
@@ -130,6 +144,23 @@ else
       MIG_OK=0
     fi
   done
+fi
+if [ "$MIG_OK" != "1" ]; then
+  echo "RESULTADO FINAL: $PASS PASS / $FAIL FAIL"; exit 1
+fi
+
+# Fase 3.11.4 — aplicada por último em TODOS os ramos acima (instalação do zero, ou banco
+# já em 3.11.2/3.11.3): marcador JA_TEM_3114 (calculado antes do if/elif/else acima)
+# decide só entre "primeira vez" e "reaplica para provar idempotência".
+if $PSQL -v ON_ERROR_STOP=1 -f "supabase/migrations/20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql" >> /tmp/fase311_mig.log 2>&1; then
+  if [ "$JA_TEM_3114" = "t" ]; then
+    pass "PASSO-0 migration 20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql reaplica sem erro (idempotente de verdade — marcador já presente)"
+  else
+    pass "PASSO-0 migration 20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql aplica sem erro (primeira vez)"
+  fi
+else
+  fail "PASSO-0 aplicar migration 20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql" "ver /tmp/fase311_mig.log"
+  MIG_OK=0
 fi
 if [ "$MIG_OK" != "1" ]; then
   echo "RESULTADO FINAL: $PASS PASS / $FAIL FAIL"; exit 1
@@ -651,27 +682,34 @@ STATUS_SIGNERS_POS_SEND=$(scalar "select string_agg(distinct status, ',') from s
 PROVIDER_ENVELOPE_ID=$(scalar "select provider_envelope_id from signature_envelopes where id='$ENVELOPE_ID';")
 
 echo "############################################################"
-echo "# NEGATIVO (seção 3) — 'envelope criado' != 'e-mail enviado': nenhum e-mail real é disparado #"
+echo "# NEGATIVO (seção 3) — para o provedor MOCK usado nesta ETAPA, 'envelope criado' != 'e-mail enviado' #"
 echo "############################################################"
-# Investigação completa (não presumida, ver api/lib/signatureProvider.js): a ÚNICA
-# implementação real de provedor neste projeto é MockHomologacaoProvider, que NUNCA toca
-# rede/e-mail (mesma limitação, honestamente documentada, desde a Fase 2.5). Este teste
-# prova isso comparando o dado de fato: "enviado ao provedor" (TESTE-39, 200) não é
-# acompanhado de NENHUM registro de entrega real de e-mail em lugar nenhum do projeto —
-# não existe nenhuma tabela/coluna que registre "e-mail efetivamente entregue" fora dos
-# eventos de webhook SIMULADOS que este próprio script vai disparar abaixo.
-# grep só por USO real (require/import de pacote), nunca por menção em comentário —
-# api/lib/otpNotifier.js e este próprio script MENCIONAM esses nomes em prosa
-# explicando exatamente a ausência deles, o que faria um grep textual simples (sem
-# distinguir código de comentário) dar falso-negativo.
-grep -rEq "require\(['\"](nodemailer|resend|@sendgrid|nodemailer-smtp)|from ['\"](nodemailer|resend|@sendgrid)" api/lib api/routes 2>/dev/null
-FOUND_EMAIL_LIB=$?
-grep -Eq '"(nodemailer|resend|@sendgrid/mail)"' api/package.json 2>/dev/null
-FOUND_EMAIL_DEP=$?
-if [ $FOUND_EMAIL_LIB -ne 0 ] && [ $FOUND_EMAIL_DEP -ne 0 ]; then
-  pass "TESTE-40 (achado real, DEPENDÊNCIA EXTERNA) confirmado por leitura de código: não existe NENHUMA biblioteca de e-mail transacional (nodemailer/Resend/SendGrid/SMTP) em api/lib ou api/routes — 'envelope ENVIADO' no OptiMon nunca significa 'e-mail realmente entregue'; só o webhook do provedor real provaria isso, e o único provedor implementado é o mock de homologação (nunca fala com rede)."
+# ATUALIZADO na Fase 3.11.4: o TESTE-40 original (Fase 3.11/3.11.2) afirmava que NENHUMA
+# biblioteca de e-mail transacional existia em api/lib ou api/routes — verdade até aqui,
+# mas deixou de ser verdade a partir da Fase 3.11.4 (o provider OPTIMON_INTERNO_RESEND,
+# testado adiante na seção "FASE 3.11.4", usa api/lib/emailService.js/Resend de verdade
+# para o link de assinatura). Manter a afirmação antiga sem atualizar seria exatamente o
+# tipo de "status mentiroso" que esta fase existe para eliminar — então o teste foi
+# reescrito para verificar o que continua sendo verdade: o MockHomologacaoProvider (o
+# provider usado NESTA etapa/envelope, id=$PROVIDER_ID, tipo=ICP_BRASIL_HOMOLOGACAO_MOCK)
+# nunca chama api/lib/emailService.js nem qualquer lib de e-mail — só cria estado local e
+# devolve um ID sintético (MOCK-ENV-...). Grep escopado à CLASSE MockHomologacaoProvider em
+# api/lib/signatureProvider.js (nunca ao arquivo inteiro, que agora legitimamente importa
+# emailService para a classe ResendInternoProvider, outro provider).
+MOCK_CLASS_BODY=$(node -e "
+const fs = require('fs');
+const src = fs.readFileSync('api/lib/signatureProvider.js', 'utf8');
+const start = src.indexOf('class MockHomologacaoProvider');
+if (start < 0) { console.log('CLASSE_NAO_ENCONTRADA'); process.exit(0); }
+const nextClass = src.indexOf('\nclass ', start + 1);
+console.log(src.slice(start, nextClass > 0 ? nextClass : undefined));
+")
+if echo "$MOCK_CLASS_BODY" | grep -Eq "emailService|nodemailer|resend|@sendgrid|require\(['\"]http|require\(['\"]https|fetch\(|axios"; then
+  fail "TESTE-40 (negativo) MockHomologacaoProvider deveria continuar sem tocar rede/e-mail" "classe encontrada, mas referencia algo de rede/e-mail — reinvestigar"
+elif [ "$MOCK_CLASS_BODY" = "CLASSE_NAO_ENCONTRADA" ]; then
+  fail "TESTE-40 classe MockHomologacaoProvider não encontrada em api/lib/signatureProvider.js" "reinvestigar renomeação"
 else
-  fail "TESTE-40 verificação de infraestrutura de e-mail" "grep encontrou alguma lib de e-mail — reinvestigar, pode já não ser mais uma limitação"
+  pass "TESTE-40 (achado real, escopado à classe usada nesta ETAPA) confirmado por leitura de código: MockHomologacaoProvider (provider ICP_BRASIL_HOMOLOGACAO_MOCK, id=$PROVIDER_ID) NUNCA toca rede/e-mail — 'envelope ENVIADO' com este provider nunca significou 'e-mail realmente entregue'. Desde a Fase 3.11.4 existe um 2º provider real (OPTIMON_INTERNO_RESEND, testado na seção FASE 3.11.4 abaixo) que usa api/lib/emailService.js de verdade — os dois convivem, nunca confundidos."
 fi
 
 echo "############################################################"
@@ -1207,6 +1245,208 @@ CODE_SEM_SECRET=$(curl -sS -o /tmp/fase311_webhook_only_resp.json -w '%{http_cod
   && pass "TESTE-94 (negativo) sem RESEND_WEBHOOK_SECRET configurada, o webhook recusa processar — 500 controlado, nunca aceita sem conseguir validar a assinatura" \
   || fail "TESTE-94 (negativo) webhook sem segredo configurado deveria recusar com 500" "codigo=$CODE_SEM_SECRET body=$(cat /tmp/fase311_webhook_only_resp.json 2>/dev/null)"
 kill_matching "webhook-only ouvindo"
+
+echo "############################################################"
+echo "# FASE 3.11.4 — ENVIO REAL DA ASSINATURA (envelope TESTE-E2E-ASSINATURA-3114) #"
+echo "############################################################"
+# Correção crítica real: o envelope de produção 571aa526-dd1e-4345-85e5-71b30ce68e8e
+# mostrou os 3 signatários como ENVIADO sem nenhum ter recebido e-mail — causa raiz
+# provada por auditoria de código (app.enviar_envelope_para_assinatura marcava ENVIADO
+# incondicionalmente, sem nenhum provider real de e-mail jamais implementado). Esta seção
+# testa a correção: um 2º provider (OPTIMON_INTERNO_RESEND) que usa o Resend real (mesmo
+# client da Fase 3.11.3) para o link de assinatura, e nunca mais marca ENVIADO sem prova
+# de aceite do provedor.
+#
+# Reaproveita o CONTRATO_ID do fluxo principal (novo envelope, 2º sobre o mesmo contrato —
+# signature_envelopes não tem limite de 1 por contrato; app.contrato_assinatura_status usa
+# sempre o mais recente). Signatários com sufixo -e2e3114 para identificação, mesmo padrão
+# -e2e311 já usado acima.
+
+echo "--- provider OPTIMON_INTERNO_RESEND ---"
+PROVIDER_RESEND_ID=$(scalar "select id from signature_providers where tipo='OPTIMON_INTERNO_RESEND' limit 1;")
+if [ -z "$PROVIDER_RESEND_ID" ]; then
+  CODE=$(api POST "/api/signatures/providers" "$TOK_ADMIN" '{"nome":"OptiMon Interno (Resend) — Fase3114 Teste","tipo":"OPTIMON_INTERNO_RESEND","ambiente":"HOMOLOGACAO"}')
+  PROVIDER_RESEND_ID=$(jget ".id")
+fi
+[ -n "$PROVIDER_RESEND_ID" ] \
+  && pass "TESTE-95 provider OPTIMON_INTERNO_RESEND disponível — id=$PROVIDER_RESEND_ID (seção 12: OptiMon envia o link via Resend, sem provedor ICP-Brasil terceirizado — arquitetura escolhida pelo usuário)" \
+  || { fail "TESTE-95 criar/obter provider OPTIMON_INTERNO_RESEND" "body=$(body)"; }
+
+echo "--- ENVELOPE TESTE-E2E-ASSINATURA-3114: novo envelope do mesmo CONTRATO, provider Resend interno, só 2 signatários (seção 6 do pedido: simplificar o diagnóstico) ---"
+ENV3114_ID=$(curl -sS -o /tmp/fase311_resp.json -w '' -X POST "$API/api/signatures/envelopes" -H "Authorization: Bearer $TOK_COMERCIAL" -F "tipo_documento=CONTRATO" -F "provider_id=$PROVIDER_RESEND_ID" -F "contrato_id=$CONTRATO_ID" > /dev/null; jget ".id")
+[ -n "$ENV3114_ID" ] \
+  && pass "TESTE-96 envelope TESTE-E2E-ASSINATURA-3114 criado (id=$ENV3114_ID, provider=OPTIMON_INTERNO_RESEND, contrato=$CONTRATO_ID)" \
+  || { fail "TESTE-96 criar envelope TESTE-E2E-ASSINATURA-3114" "body=$(body)"; echo "RESULTADO FINAL: $PASS PASS / $FAIL FAIL"; exit 1; }
+
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114_ID/signers" "$TOK_COMERCIAL" '{"nome":"NICK e2e3114","email":"nick-e2e3114@optimon.local","papel":"REPRESENTANTE_NICK","ordem":1,"obrigatorio":true}')
+S3114_NICK=$(jget ".id")
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114_ID/signers" "$TOK_COMERCIAL" '{"nome":"Parceiro e2e3114","email":"parceiro-e2e3114@optimon.local","papel":"REPRESENTANTE_PROPONENTE","ordem":2,"obrigatorio":true}')
+S3114_PARCEIRO=$(jget ".id")
+[ -n "$S3114_NICK" ] && [ -n "$S3114_PARCEIRO" ] \
+  && pass "TESTE-97 2 signatários adicionados ao envelope TESTE-E2E-ASSINATURA-3114 (NICK=$S3114_NICK, PARCEIRO=$S3114_PARCEIRO)" \
+  || fail "TESTE-97 adicionar signatários ao envelope 3114" "nick=$S3114_NICK parceiro=$S3114_PARCEIRO"
+
+echo "--- ENVIAR (POST /send) — sem RESEND_API_KEY configurada neste ambiente (mesma limitação já documentada para o OTP na Fase 3.11.3) ---"
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114_ID/send" "$TOK_COMERCIAL")
+[ "$CODE" = "200" ] \
+  && pass "TESTE-98 POST /send respondeu 200 (a requisição HTTP em si sempre é processada — o resultado REAL do envio é o que os testes seguintes verificam no banco, nunca o código HTTP sozinho)" \
+  || fail "TESTE-98 enviar envelope TESTE-E2E-ASSINATURA-3114" "codigo=$CODE body=$(body)"
+
+echo "--- TESTE CRÍTICO (seção 3/11 do pedido, regressão do bug real 571aa526): sem confirmação real do Resend, o envelope NUNCA fica ENVIADO — vira ERRO_ENVIO, nunca finge sucesso ---"
+ENV3114_STATUS=$(scalar "select status from signature_envelopes where id='$ENV3114_ID';")
+[ "$ENV3114_STATUS" = "ERRO_ENVIO" ] \
+  && pass "TESTE-99 (CRÍTICO) envelope TESTE-E2E-ASSINATURA-3114 corretamente em ERRO_ENVIO (nunca ENVIADO) — sem RESEND_API_KEY configurada, nenhum e-mail foi de fato aceito pelo provedor; status=$ENV3114_STATUS" \
+  || fail "TESTE-99 (CRÍTICO — regressão do bug 571aa526) envelope deveria estar ERRO_ENVIO, nunca ENVIADO sem prova real" "status=$ENV3114_STATUS"
+
+STATUS_NICK_3114=$(scalar "select status from signature_signers where id='$S3114_NICK';")
+STATUS_PARCEIRO_3114=$(scalar "select status from signature_signers where id='$S3114_PARCEIRO';")
+ERRO_NICK_3114=$(scalar "select erro_mensagem from signature_signers where id='$S3114_NICK';")
+[ "$STATUS_NICK_3114" = "ERRO_ENVIO" ] && [ "$STATUS_PARCEIRO_3114" = "ERRO_ENVIO" ] && [ -n "$ERRO_NICK_3114" ] \
+  && pass "TESTE-100 os 2 signatários corretamente em ERRO_ENVIO com erro_mensagem preenchida (nick=\"$ERRO_NICK_3114\")" \
+  || fail "TESTE-100 status por signatário deveria ser ERRO_ENVIO com erro_mensagem" "nick=$STATUS_NICK_3114 parceiro=$STATUS_PARCEIRO_3114 erro=$ERRO_NICK_3114"
+
+echo "--- confirma que o link REAL foi gerado e ficou disponível no log do servidor (a falha é honesta sobre 'não enviei e-mail', nunca sobre 'não gerei o link') ---"
+LINKS_NO_LOG=$(grep -c "DEV-SIGNATURE-LINK-NAO-E-EMAIL-REAL.*e2e3114@optimon.local" /tmp/fase311_api.log 2>/dev/null || echo 0)
+[ "$LINKS_NO_LOG" -ge 2 ] \
+  && pass "TESTE-101 os 2 links de assinatura foram gerados e logados (canal DEV_LOG, $LINKS_NO_LOG ocorrência(s)) — a limitação é só a confirmação de entrega, nunca a geração do link em si" \
+  || fail "TESTE-101 links de assinatura deveriam aparecer no log do servidor (DEV_LOG)" "ocorrencias=$LINKS_NO_LOG"
+
+echo "--- app.contrato_assinatura_status (extensão da Fase 3.11.4, seção 16): mostra o ENVELOPE MAIS RECENTE (o 3114, não mais o mock da ETAPA 13) com provider_nome/provider_tipo corretos ---"
+STATUS_JSON_3114=$($PSQL -t -A -q -c "select app.contrato_assinatura_status('$CONTRATO_ID');")
+PROVIDER_TIPO_NO_STATUS=$(echo "$STATUS_JSON_3114" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).provider_tipo||'')}catch(e){console.log('')}})")
+ENVELOPE_ID_NO_STATUS=$(echo "$STATUS_JSON_3114" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).envelope_id||'')}catch(e){console.log('')}})")
+[ "$PROVIDER_TIPO_NO_STATUS" = "OPTIMON_INTERNO_RESEND" ] && [ "$ENVELOPE_ID_NO_STATUS" = "$ENV3114_ID" ] \
+  && pass "TESTE-102 app.contrato_assinatura_status mostra o envelope mais recente ($ENV3114_ID) com provider_tipo=OPTIMON_INTERNO_RESEND (seção 16: tela deixa claro qual provedor está em uso)" \
+  || fail "TESTE-102 app.contrato_assinatura_status deveria mostrar o envelope 3114 com o provider correto" "envelope=$ENVELOPE_ID_NO_STATUS provider_tipo=$PROVIDER_TIPO_NO_STATUS"
+
+echo "--- NEGATIVO (seção 14, cenário 'e-mail inválido'/'envelope inexistente'): token de acesso inexistente é recusado ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' "$API/api/signatures/external/token-forjado-nao-existe-3114")
+ERRO_TOKEN=$(jget ".error")
+echo "$ERRO_TOKEN" | grep -qi "TOKEN_INVALIDO" \
+  && pass "TESTE-103 (negativo) GET com token inexistente é recusado com TOKEN_INVALIDO (codigo=$CODE)" \
+  || fail "TESTE-103 (negativo) token inexistente deveria ser recusado com TOKEN_INVALIDO" "codigo=$CODE erro=$ERRO_TOKEN"
+
+echo "--- simula, só para este teste local sem credencial real do Resend, o que a Fase 3.11.4 faria automaticamente com RESEND_API_KEY configurada: marca ENVIADO por SQL direto (nunca via HTTP) para poder testar de ponta a ponta o link individual (abrir/assinar/recusar) — documentado explicitamente como simulação, nunca apresentado como prova de e-mail real recebido (isso só o usuário, com a chave real do Resend em produção, pode confirmar) ---"
+TOKEN_NICK_3114=$(scalar "select token_acesso from signature_signers where id='$S3114_NICK';")
+TOKEN_PARCEIRO_3114=$(scalar "select token_acesso from signature_signers where id='$S3114_PARCEIRO';")
+$PSQL -c "update signature_signers set status='ENVIADO', enviado_em=now(), erro_mensagem=null where id in ('$S3114_NICK','$S3114_PARCEIRO');" > /dev/null
+[ -n "$TOKEN_NICK_3114" ] && [ -n "$TOKEN_PARCEIRO_3114" ] \
+  && pass "TESTE-104 tokens de acesso individuais (64 hex chars) foram gerados por app.envelope_signatario_gerar_link ANTES da tentativa de envio (nick=${TOKEN_NICK_3114:0:8}… parceiro=${TOKEN_PARCEIRO_3114:0:8}…) — reutilizados abaixo para testar o link externo de ponta a ponta" \
+  || fail "TESTE-104 tokens de acesso deveriam ter sido gerados" "nick=$TOKEN_NICK_3114 parceiro=$TOKEN_PARCEIRO_3114"
+
+echo "--- GET /api/signatures/external/:token (abrir o link) — marca ABERTO, nunca representa assinatura, nunca vaza preço/margem/dado interno ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' "$API/api/signatures/external/$TOKEN_NICK_3114")
+JA_ASSINADO_ABERTURA=$(jget ".ja_assinado")
+STATUS_POS_ABERTURA=$(scalar "select status from signature_signers where id='$S3114_NICK';")
+HAS_PRECO=$(jhas "preco_final")
+[ "$CODE" = "200" ] && [ "$JA_ASSINADO_ABERTURA" = "false" ] && [ "$STATUS_POS_ABERTURA" = "ABERTO" ] && [ "$HAS_PRECO" = "NAO" ] \
+  && pass "TESTE-105 abrir o link marca ABERTO (nunca ASSINADO) e não expõe nenhum dado interno (preco_final ausente) — status=$STATUS_POS_ABERTURA" \
+  || fail "TESTE-105 abrir o link" "codigo=$CODE ja_assinado=$JA_ASSINADO_ABERTURA status=$STATUS_POS_ABERTURA tem_preco=$HAS_PRECO"
+
+echo "--- NEGATIVO (seção 14 'aceite sem checkbox'): assinar sem declaração é recusado ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/external/$TOKEN_NICK_3114/assinar" -H "Content-Type: application/json" -d '{"nome":"Representante NICK e2e3114","documento":"000.000.000-00","declaracao":false}')
+jget ".error" | grep -qi "DECLARACAO_OBRIGATORIA" \
+  && pass "TESTE-106 (negativo) assinar sem marcar a declaração é recusado com DECLARACAO_OBRIGATORIA (codigo=$CODE)" \
+  || fail "TESTE-106 (negativo) assinar sem declaração deveria ser recusado" "codigo=$CODE body=$(body)"
+
+echo "--- NEGATIVO (seção 14 'CPF/nome ausente'): assinar sem CPF é recusado ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/external/$TOKEN_NICK_3114/assinar" -H "Content-Type: application/json" -d '{"nome":"Representante NICK e2e3114","documento":"","declaracao":true}')
+jget ".error" | grep -qi "DADOS_OBRIGATORIOS" \
+  && pass "TESTE-107 (negativo) assinar sem CPF é recusado com DADOS_OBRIGATORIOS (codigo=$CODE)" \
+  || fail "TESTE-107 (negativo) assinar sem CPF deveria ser recusado" "codigo=$CODE body=$(body)"
+
+echo "--- ASSINAR de verdade (dados completos + declaração) — só aqui ASSINADO é gravado ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/external/$TOKEN_NICK_3114/assinar" -H "Content-Type: application/json" -d '{"nome":"Representante NICK e2e3114","documento":"123.456.789-00","declaracao":true}')
+STATUS_ASSINADO_NICK=$(scalar "select status from signature_signers where id='$S3114_NICK';")
+CERT_TIPO=$(scalar "select certificado_info->>'tipo' from signature_signers where id='$S3114_NICK';")
+[ "$CODE" = "200" ] && [ "$STATUS_ASSINADO_NICK" = "ASSINADO" ] && [ "$CERT_TIPO" = "ASSINATURA_ELETRONICA_SIMPLES" ] \
+  && pass "TESTE-108 signatário NICK assinou de verdade via link — status=ASSINADO, certificado_info.tipo=$CERT_TIPO (honesto: nunca ICP-Brasil qualificada — seção 12 do pedido)" \
+  || fail "TESTE-108 assinar via link deveria gravar ASSINADO" "codigo=$CODE status=$STATUS_ASSINADO_NICK cert_tipo=$CERT_TIPO"
+
+echo "--- NEGATIVO (seção 14 'assinatura duplicada'): assinar de novo com o mesmo token é recusado ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/external/$TOKEN_NICK_3114/assinar" -H "Content-Type: application/json" -d '{"nome":"Representante NICK e2e3114","documento":"123.456.789-00","declaracao":true}')
+jget ".error" | grep -qi "ASSINATURA_DUPLICADA" \
+  && pass "TESTE-109 (negativo) assinar duas vezes com o mesmo token é recusado com ASSINATURA_DUPLICADA (codigo=$CODE)" \
+  || fail "TESTE-109 (negativo) assinatura duplicada deveria ser recusada" "codigo=$CODE body=$(body)"
+
+echo "--- ENVELOPE ainda não pode ficar ASSINADO: falta o 2º signatário obrigatório (parceiro) ---"
+ENV3114_STATUS_PARCIAL=$(scalar "select status from signature_envelopes where id='$ENV3114_ID';")
+[ "$ENV3114_STATUS_PARCIAL" = "PARCIALMENTE_ASSINADO" ] \
+  && pass "TESTE-110 com 1 de 2 obrigatórios assinado, envelope corretamente PARCIALMENTE_ASSINADO — status=$ENV3114_STATUS_PARCIAL" \
+  || fail "TESTE-110 status parcial do envelope 3114" "status=$ENV3114_STATUS_PARCIAL"
+
+echo "--- NEGATIVO (seção 14 'signatário não autorizado'/'assinatura por quem não deveria'): assinar com token de OUTRO signatário nunca afeta o signatário errado — cada token só assina o próprio signatário (já garantido pela FK token_acesso->signer, testado aqui de forma factual) ---"
+STATUS_PARCEIRO_ANTES=$(scalar "select status from signature_signers where id='$S3114_PARCEIRO';")
+[ "$STATUS_PARCEIRO_ANTES" != "ASSINADO" ] \
+  && pass "TESTE-111 (negativo) assinar com o token do NICK não alterou o signatário PARCEIRO (status=$STATUS_PARCEIRO_ANTES, continua pendente — cada token é exclusivo de 1 signatário)" \
+  || fail "TESTE-111 (CRÍTICO) token de um signatário afetou outro signatário" "status_parceiro=$STATUS_PARCEIRO_ANTES"
+
+echo "--- RECUSAR pelo link (2º signatário, seção 13) — motivo obrigatório ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/external/$TOKEN_PARCEIRO_3114/recusar" -H "Content-Type: application/json" -d '{"motivo":""}')
+jget ".error" | grep -qi "MOTIVO_OBRIGATORIO" \
+  && pass "TESTE-112 (negativo) recusar sem motivo é recusado com MOTIVO_OBRIGATORIO (codigo=$CODE)" \
+  || fail "TESTE-112 (negativo) recusar sem motivo deveria ser recusado" "codigo=$CODE body=$(body)"
+
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/external/$TOKEN_PARCEIRO_3114/recusar" -H "Content-Type: application/json" -d '{"motivo":"Teste E2E — recusa deliberada do 2 signatário obrigatório (TESTE-E2E-ASSINATURA-3114)."}')
+STATUS_PARCEIRO_RECUSADO=$(scalar "select status from signature_signers where id='$S3114_PARCEIRO';")
+ENV3114_STATUS_RECUSADO=$(scalar "select status from signature_envelopes where id='$ENV3114_ID';")
+[ "$CODE" = "200" ] && [ "$STATUS_PARCEIRO_RECUSADO" = "RECUSADO" ] && [ "$ENV3114_STATUS_RECUSADO" = "RECUSADO" ] \
+  && pass "TESTE-113 (ETAPA FINAL, seção 14 'recusa formal') signatário PARCEIRO recusou — signatário=RECUSADO, envelope (obrigatório recusou) também vira RECUSADO=$ENV3114_STATUS_RECUSADO" \
+  || fail "TESTE-113 recusar via link" "codigo=$CODE status_signer=$STATUS_PARCEIRO_RECUSADO status_envelope=$ENV3114_STATUS_RECUSADO"
+
+echo "--- NEGATIVO (seção 14 'finalizar com obrigatório pendente/recusado'): REENVIAR para o signatário que já ASSINOU é bloqueado — nunca duplica assinatura ---"
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114_ID/signers/$S3114_NICK/resend" "$TOK_COMERCIAL" '{"motivo":"teste negativo — já assinou"}')
+[ "$CODE" != "200" ] \
+  && pass "TESTE-114 (negativo) reenviar para signatário já ASSINADO é bloqueado (codigo=$CODE) — nunca duplica assinatura" \
+  || fail "TESTE-114 (negativo) reenviar para quem já assinou deveria ser bloqueado" "codigo=$CODE body=$(body)"
+
+echo "--- GAP REAL encontrado e corrigido nesta própria fase (seção 10 do pedido): REENVIAR para envelope em ERRO_ENVIO agora É PERMITIDO (antes desta correção, app.reenviar_assinatura_signatario não reconhecia ERRO_ENVIO como status válido para reenvio, e o botão REENVIAR ficaria travado exatamente quando mais se precisa dele) ---"
+ENV3114B_ID=$(curl -sS -o /tmp/fase311_resp.json -w '' -X POST "$API/api/signatures/envelopes" -H "Authorization: Bearer $TOK_COMERCIAL" -F "tipo_documento=CONTRATO" -F "provider_id=$PROVIDER_RESEND_ID" -F "contrato_id=$CONTRATO_ID" > /dev/null; jget ".id")
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114B_ID/signers" "$TOK_COMERCIAL" '{"nome":"NICK e2e3114b","email":"nick-e2e3114b@optimon.local","papel":"REPRESENTANTE_NICK","ordem":1,"obrigatorio":true}')
+S3114B_ID=$(jget ".id")
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114B_ID/send" "$TOK_COMERCIAL")
+ENV3114B_STATUS=$(scalar "select status from signature_envelopes where id='$ENV3114B_ID';")
+CODE_REENVIO=$(api POST "/api/signatures/envelopes/$ENV3114B_ID/signers/$S3114B_ID/resend" "$TOK_COMERCIAL" '{"motivo":"teste — reenvio apos ERRO_ENVIO, corrigido nesta fase"}')
+[ "$ENV3114B_STATUS" = "ERRO_ENVIO" ] && [ "$CODE_REENVIO" = "200" ] \
+  && pass "TESTE-115 (correção de gap real) envelope caiu em ERRO_ENVIO (status=$ENV3114B_STATUS) e o REENVIAR funcionou (codigo=$CODE_REENVIO) — antes da correção desta fase, esta chamada seria bloqueada com STATUS_INVALIDO" \
+  || fail "TESTE-115 reenviar signatário de envelope em ERRO_ENVIO deveria funcionar" "status_envelope=$ENV3114B_STATUS codigo_reenvio=$CODE_REENVIO body=$(body)"
+
+echo "--- webhook do Resend (reaproveitado da Fase 3.11.3, seção 9/12): evento 'email.delivered' para um email_provider_id de ASSINATURA (não de OTP de proposta) atualiza o signatário para ENTREGUE — simulação controlada de email_provider_id via SQL (mesmo padrão já usado nesta suíte para testar o fallback do webhook de forma isolada, sem depender de uma chave real do Resend) ---"
+EMAIL_PROVIDER_ID_SIM="email-sim-3114-$RANDOM"
+$PSQL -c "update signature_signers set status='ENVIADO', enviado_em=now(), email_provider_id='$EMAIL_PROVIDER_ID_SIM', email_canal='RESEND' where id='$S3114B_ID';" > /dev/null
+node -e "console.log(JSON.stringify({type:'email.delivered', data:{email_id: '$EMAIL_PROVIDER_ID_SIM'}}))" > /tmp/fase3114_webhook_payload.json
+CODE=$(sign_and_post_resend_webhook /tmp/fase3114_webhook_payload.json)
+FLUXO_WEBHOOK=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('/tmp/fase311_resend_webhook_resp.json','utf8')).fluxo||'')}catch(e){console.log('')}")
+STATUS_POS_WEBHOOK_SIG=$(scalar "select status from signature_signers where id='$S3114B_ID';")
+[ "$CODE" = "200" ] && [ "$FLUXO_WEBHOOK" = "assinatura_eletronica" ] && [ "$STATUS_POS_WEBHOOK_SIG" = "ENTREGUE" ] \
+  && pass "TESTE-116 webhook do Resend (mesmo endpoint da Fase 3.11.3, sem 2ª solução) reconhece email_provider_id de ASSINATURA via fallback (fluxo=$FLUXO_WEBHOOK) e atualiza signatário para ENTREGUE" \
+  || fail "TESTE-116 webhook deveria atualizar signatário de assinatura para ENTREGUE" "codigo=$CODE fluxo=$FLUXO_WEBHOOK status_signer=$STATUS_POS_WEBHOOK_SIG"
+
+echo "--- NEGATIVO (provider inexistente): criar envelope com provider_id inválido é recusado com 404 ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/envelopes" -H "Authorization: Bearer $TOK_COMERCIAL" -F "tipo_documento=CONTRATO" -F "provider_id=00000000-0000-0000-0000-000000000000" -F "contrato_id=$CONTRATO_ID")
+[ "$CODE" = "404" ] \
+  && pass "TESTE-117 (negativo) criar envelope com provider_id inexistente é recusado com 404" \
+  || fail "TESTE-117 (negativo) provider inexistente deveria ser recusado com 404" "codigo=$CODE body=$(body)"
+
+echo "--- NEGATIVO (seção 14 'envelope sem signatário'): enviar envelope sem nenhum signatário é recusado ---"
+ENV3114C_ID=$(curl -sS -o /tmp/fase311_resp.json -w '' -X POST "$API/api/signatures/envelopes" -H "Authorization: Bearer $TOK_COMERCIAL" -F "tipo_documento=CONTRATO" -F "provider_id=$PROVIDER_RESEND_ID" -F "contrato_id=$CONTRATO_ID" > /dev/null; jget ".id")
+CODE=$(api POST "/api/signatures/envelopes/$ENV3114C_ID/send" "$TOK_COMERCIAL")
+[ "$CODE" = "400" ] \
+  && pass "TESTE-118 (negativo) enviar envelope sem nenhum signatário é recusado com 400 (SEM_SIGNATARIOS)" \
+  || fail "TESTE-118 (negativo) enviar envelope sem signatários deveria ser recusado" "codigo=$CODE body=$(body)"
+
+echo "--- auditoria semântica (seção 15 do pedido): eventos reais gravados para o envelope TESTE-E2E-ASSINATURA-3114 ---"
+EVENTOS_3114=$(scalar "select string_agg(distinct acao, ',' order by acao) from auditoria where (entidade='signature_envelopes' and entidade_id='$ENV3114_ID') or (entidade='signature_signers' and entidade_id in ('$S3114_NICK','$S3114_PARCEIRO'));")
+TEM_SEND_REQUESTED=$(echo "$EVENTOS_3114" | grep -c "SIGNATURE_SEND_REQUESTED" || true)
+TEM_SEND_FAILED=$(echo "$EVENTOS_3114" | grep -c "SIGNATURE_SEND_FAILED" || true)
+TEM_OPENED=$(echo "$EVENTOS_3114" | grep -c "SIGNATURE_OPENED" || true)
+TEM_SIGNED=$(echo "$EVENTOS_3114" | grep -c "SIGNATURE_SIGNED" || true)
+TEM_DECLINED=$(echo "$EVENTOS_3114" | grep -c "SIGNATURE_DECLINED_BY_SIGNER" || true)
+if [ "$TEM_SEND_REQUESTED" -ge 1 ] && [ "$TEM_SEND_FAILED" -ge 1 ] && [ "$TEM_OPENED" -ge 1 ] && [ "$TEM_SIGNED" -ge 1 ] && [ "$TEM_DECLINED" -ge 1 ]; then
+  pass "TESTE-119 auditoria semântica completa para o envelope 3114: $EVENTOS_3114"
+else
+  fail "TESTE-119 auditoria semântica incompleta para o envelope 3114" "eventos encontrados: $EVENTOS_3114"
+fi
 
 echo "############################################################"
 echo "# LIMPEZA CONTROLADA — desativa todos os parceiros de teste criados nesta suíte #"

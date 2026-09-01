@@ -106,25 +106,43 @@ router.post('/resend', express.raw({ type: '*/*', limit: '2mb' }), async (req, r
     return res.status(200).json({ ignorado: true, motivo: `evento informativo sem mudança de status: ${tipoEvento}` });
   }
 
+  const detalhe = tipoEvento === 'email.bounced' || tipoEvento === 'email.complained' || tipoEvento === 'email.failed'
+    ? `Evento Resend: ${tipoEvento}`
+    : null;
+
   const anon = anonClient();
   const { error } = await anon.rpc('pricing_proposal_accept_email_status_por_provider_id', {
     p_email_provider_id: emailId,
     p_email_status: novoStatus,
-    p_detalhe: tipoEvento === 'email.bounced' || tipoEvento === 'email.complained' || tipoEvento === 'email.failed'
-      ? `Evento Resend: ${tipoEvento}`
-      : null,
+    p_detalhe: detalhe,
   });
-  if (error) {
-    // Nenhuma tentativa encontrada para este email_id (ex.: e-mail de outro fluxo que
-    // não o de OTP) — não é um erro de segurança, só não se aplica aqui.
-    if (/TENTATIVA_INVALIDA/i.test(error.message || '')) {
-      return res.status(200).json({ ignorado: true, motivo: 'email_id não corresponde a nenhuma tentativa de aceite de OTP.' });
-    }
-    console.error('[resend-webhook] erro ao registrar evento:', error.message);
+  if (!error) {
+    return res.status(200).json({ processado: true, tipo_evento: tipoEvento, novo_status: novoStatus, fluxo: 'proposta_otp' });
+  }
+  if (!/TENTATIVA_INVALIDA/i.test(error.message || '')) {
+    console.error('[resend-webhook] erro ao registrar evento (fluxo OTP de proposta):', error.message);
     return res.status(500).json({ error: 'Erro ao registrar evento do webhook.' });
   }
 
-  return res.status(200).json({ processado: true, tipo_evento: tipoEvento, novo_status: novoStatus });
+  // Fase 3.11.4 (seção 9/12): este email_id não é de um OTP de proposta — reaproveita o
+  // MESMO webhook (nunca uma segunda solução) para também cobrir o link de assinatura
+  // eletrônica enviado por signatureLinkNotifier.js.
+  const signatureEvento = { 'email.delivered': 'EMAIL_ENTREGUE', 'email.bounced': 'EMAIL_REJEITADO', 'email.complained': 'EMAIL_REJEITADO', 'email.failed': 'EMAIL_FALHOU' }[tipoEvento] || null;
+  if (!signatureEvento) {
+    return res.status(200).json({ ignorado: true, motivo: 'email_id não corresponde a nenhuma tentativa de aceite de OTP nem a um envio de assinatura.' });
+  }
+  const { error: sigError } = await anon.rpc('pricing_signature_email_status_por_provider_id', {
+    p_email_provider_id: emailId, p_evento: signatureEvento, p_detalhe: detalhe,
+  });
+  if (sigError) {
+    if (/TENTATIVA_INVALIDA/i.test(sigError.message || '')) {
+      return res.status(200).json({ ignorado: true, motivo: 'email_id não corresponde a nenhuma tentativa de aceite de OTP nem a um envio de assinatura.' });
+    }
+    console.error('[resend-webhook] erro ao registrar evento (fluxo de assinatura):', sigError.message);
+    return res.status(500).json({ error: 'Erro ao registrar evento do webhook.' });
+  }
+
+  return res.status(200).json({ processado: true, tipo_evento: tipoEvento, novo_status: signatureEvento, fluxo: 'assinatura_eletronica' });
 });
 
 module.exports = { router };

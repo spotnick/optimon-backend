@@ -193,6 +193,16 @@ export const api = {
     decline: (token, body) => requestExternal(`/api/proposals/external/${token}/decline`, { method: 'POST', body }),
   },
 
+  // Fase 3.11.4 (seções 12-13): área externa do signatário — SEM autenticação (o
+  // signatário nunca faz login no OptiMon). Mesma disciplina de proposalsExternal acima:
+  // token opaco da URL, nunca um JWT, `requestExternal`.
+  signaturesExternal: {
+    get: (token) => requestExternal(`/api/signatures/external/${token}`),
+    document: (token) => requestExternal(`/api/signatures/external/${token}/document`),
+    assinar: (token, body) => requestExternal(`/api/signatures/external/${token}/assinar`, { method: 'POST', body }),
+    recusar: (token, body) => requestExternal(`/api/signatures/external/${token}/recusar`, { method: 'POST', body }),
+  },
+
   partners: {
     list: (params = {}) => request(`/api/partners?${new URLSearchParams(params)}`),
     get: (id) => request(`/api/partners/${id}`),
