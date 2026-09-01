@@ -78,13 +78,38 @@ export default function SignatureDetail() {
     finally { setBusy(false); }
   }
 
+  // Fase 3.11.5.1 — GAP REAL encontrado no reteste do usuário: quando o PDF final assinado
+  // ainda não existe, a rota sempre devolveu o documento ORIGINAL como fallback (intencional
+  // desde a Fase 2.5) — mas nunca avisava disso, então este botão abria, silenciosamente, o
+  // documento SEM assinatura, parecendo que era o assinado. Agora a resposta traz `tipo`
+  // (ASSINADO/ORIGINAL) e a tela avisa claramente antes de abrir.
   async function handleDownload() {
     setActionError(null);
     try {
-      const { url } = await api.signatures.document(id);
+      const { url, tipo } = await api.signatures.document(id);
+      if (tipo === 'ORIGINAL') {
+        setActionError('Ainda não existe um PDF assinado (com certificado) gerado para este envelope — abrindo o documento ORIGINAL, sem assinatura. Use "Gerar/atualizar documento assinado" abaixo para gerar o PDF final.');
+      }
       window.open(url, '_blank', 'noopener');
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Documento assinado ainda não disponível.');
+    }
+  }
+
+  // Fase 3.11.5.1 — gap real: um envelope já ASSINADO cujo PDF final com certificado nunca
+  // foi gerado (assinado antes desta correção, ou a geração automática falhou uma vez e
+  // nunca teve nova chance). "Baixar documento assinado" acima, nesse caso, silenciosamente
+  // devolvia o documento ORIGINAL (fallback antigo, de antes desta fase) — nunca avisava que
+  // não era o assinado de verdade. Este botão gera/re-gera o PDF final de verdade.
+  async function handleGerarDocumentoAssinado() {
+    setActionError(null); setBusy(true);
+    try {
+      await api.signatures.gerarDocumentoAssinado(id);
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao gerar o documento assinado.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -105,6 +130,9 @@ export default function SignatureDetail() {
         <button className="btn btn-primary" disabled={busy || envelope.status !== 'CRIADO'} onClick={handleSend}>Enviar para assinatura</button>
         <button className="btn btn-secondary" disabled={busy} onClick={handleValidate}>Validar assinatura</button>
         <button className="btn btn-secondary" disabled={busy} onClick={handleDownload}>Baixar documento assinado</button>
+        {['ASSINADO', 'VALIDADO'].includes(envelope.status) && (
+          <button className="btn btn-secondary" disabled={busy} onClick={handleGerarDocumentoAssinado}>Gerar/atualizar documento assinado (com certificado)</button>
+        )}
         <button className="btn btn-danger" disabled={busy || ['ASSINADO', 'VALIDADO', 'CANCELADO'].includes(envelope.status)} onClick={handleCancel}>Cancelar envelope</button>
       </div>
 

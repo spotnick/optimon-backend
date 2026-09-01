@@ -199,6 +199,20 @@ if [ "$MIG_OK" != "1" ]; then
   echo "RESULTADO FINAL: $PASS PASS / $FAIL FAIL"; exit 1
 fi
 
+# Fase 3.11.5.1 — correção retroativa (repara documentos_assinados.storage_path_assinado
+# "poluído" por assinaturas feitas antes desta fase) — sempre aplicada por último, também em
+# TODOS os ramos; é um UPDATE puro (idempotente por natureza: a 2ª execução não encontra mais
+# nenhuma linha poluída para corrigir, então não altera nada).
+if $PSQL -v ON_ERROR_STOP=1 -f "supabase/migrations/20261008100000_phase_3_11_05_01_repara_documento_assinado_retroativo.sql" >> /tmp/fase311_mig.log 2>&1; then
+  pass "PASSO-0 migration 20261008100000_phase_3_11_05_01_repara_documento_assinado_retroativo.sql aplica sem erro"
+else
+  fail "PASSO-0 aplicar migration 20261008100000_phase_3_11_05_01_repara_documento_assinado_retroativo.sql" "ver /tmp/fase311_mig.log"
+  MIG_OK=0
+fi
+if [ "$MIG_OK" != "1" ]; then
+  echo "RESULTADO FINAL: $PASS PASS / $FAIL FAIL"; exit 1
+fi
+
 $PSQL -c "NOTIFY pgrst, 'reload schema';" > /dev/null 2>&1
 
 echo "############################################################"
@@ -1587,6 +1601,62 @@ if echo "$ERRO_DOC_ASSINADO" | grep -qi "ainda não está pronto"; then
   fail "TESTE-130 document-assinado deveria reconhecer o caminho recém-registrado" "codigo=$CODE erro=$ERRO_DOC_ASSINADO disponivel=$INFO_DISPONIVEL"
 else
   pass "TESTE-130 com o PDF final registrado, GET .../document-assinado sai do 404 \"ainda não pronto\" (codigo=$CODE — o resultado final depende só do Storage real, indisponível neste sandbox) e documento_assinado_disponivel=$INFO_DISPONIVEL"
+fi
+
+echo "############################################################"
+echo "# Fase 3.11.5.1 (correção retroativa, gap real reportado pelo usuário no reteste em produção — envelope real 800aa6a6-...): storage_path_assinado 'poluído' (cópia do original, gravada pela função antiga já removida) é resetado, e o ADMINISTRADOR ganha uma rota para gerar/re-gerar o PDF final sob demanda #"
+echo "############################################################"
+
+echo "--- simula o estado real encontrado em produção: um documentos_assinados com storage_path_assinado igual ao original (só a função antiga, já removida, produzia isso) — usa um caminho FAKE explícito nos 2 campos (nunca dependendo de storage_path_original real, que fica null neste sandbox sem Storage — ver TESTE-120) ---"
+FAKE_ORIGINAL_PATH="envelopes/$ENV_CERT_ID/original-teste-poluicao-simulada.pdf"
+$PSQL -q -c "update documentos_assinados set storage_path_original = '$FAKE_ORIGINAL_PATH', storage_path_assinado = '$FAKE_ORIGINAL_PATH', hash_sha256_assinado = 'hash-antigo-poluido' where envelope_id='$ENV_CERT_ID';" > /dev/null
+POLUIDO_ANTES=$(scalar "select (storage_path_assinado = storage_path_original) from documentos_assinados where envelope_id='$ENV_CERT_ID';")
+[ "$POLUIDO_ANTES" = "t" ] \
+  && pass "TESTE-131 setup: linha de documentos_assinados poluída de propósito (storage_path_assinado = storage_path_original), reproduzindo o estado real de produção" \
+  || fail "TESTE-131 setup da poluição de teste" "poluido_antes=$POLUIDO_ANTES"
+
+echo "--- reaplica SÓ a migration de correção retroativa (idempotente — mesma que já rodou no PASSO-0) e confirma que ela reseta a linha poluída de volta para null ---"
+$PSQL -v ON_ERROR_STOP=1 -f "supabase/migrations/20261008100000_phase_3_11_05_01_repara_documento_assinado_retroativo.sql" >> /tmp/fase311_mig.log 2>&1
+STORAGE_PATH_ASSINADO_POS_REPARO=$(scalar "select coalesce(storage_path_assinado, '(null)') from documentos_assinados where envelope_id='$ENV_CERT_ID';")
+[ "$STORAGE_PATH_ASSINADO_POS_REPARO" = "(null)" ] \
+  && pass "TESTE-132 (CRÍTICO — regressão do gap real relatado pelo usuário) a migration de reparo reseta storage_path_assinado/hash_sha256_assinado poluídos de volta para null — nunca mais aponta pro documento original como se fosse o assinado" \
+  || fail "TESTE-132 (CRÍTICO) a migration de reparo deveria resetar a linha poluída para null" "storage_path_assinado_pos_reparo=$STORAGE_PATH_ASSINADO_POS_REPARO"
+
+echo "--- confirma que a consequência do reparo se propaga: documento_assinado_disponivel volta a false (a tela pública passa a mostrar 'gerando...' de novo, em vez de oferecer o documento sem assinatura como se fosse o final) ---"
+INFO_DISPONIVEL_POS_REPARO=$(curl -sS "$API/api/signatures/external/$TOKEN_CERT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).documento_assinado_disponivel)}catch(e){console.log('')}})")
+[ "$INFO_DISPONIVEL_POS_REPARO" = "false" ] \
+  && pass "TESTE-133 depois do reparo, documento_assinado_disponivel volta a false — a tela pública para de oferecer 'Ver PDF assinado' sobre um documento que não tem assinatura nenhuma" \
+  || fail "TESTE-133 documento_assinado_disponivel deveria voltar a false depois do reparo" "disponivel=$INFO_DISPONIVEL_POS_REPARO"
+
+echo "--- rota nova POST /envelopes/:id/gerar-documento-assinado (staff autenticado): negativos primeiro — sem token (401), envelope inexistente (404) ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/envelopes/$ENV_CERT_ID/gerar-documento-assinado")
+[ "$CODE" = "401" ] \
+  && pass "TESTE-134 POST .../gerar-documento-assinado SEM token de usuário é bloqueado — codigo=401" \
+  || fail "TESTE-134" "codigo=$CODE body=$(body)"
+
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/envelopes/00000000-0000-0000-0000-000000000000/gerar-documento-assinado" -H "Authorization: Bearer $TOK_COMERCIAL")
+[ "$CODE" = "404" ] \
+  && pass "TESTE-135 POST .../gerar-documento-assinado para envelope inexistente — codigo=404" \
+  || fail "TESTE-135" "codigo=$CODE body=$(body)"
+
+echo "--- staff autenticado (COMERCIAL, mesmo papel de documentos_assinados_write) dispara a geração sob demanda — reaproveita a MESMA função do fluxo externo, então tem a MESMA limitação de ambiente já documentada (sem Storage real neste sandbox local): o esperado aqui é um 502 controlado, nunca um crash 500, provando que a rota passou pelas checagens de papel/status/tipo_documento e só parou na chamada real de Storage ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' -X POST "$API/api/signatures/envelopes/$ENV_CERT_ID/gerar-documento-assinado" -H "Authorization: Bearer $TOK_COMERCIAL")
+[ "$CODE" = "502" ] || [ "$CODE" = "200" ] \
+  && pass "TESTE-136 POST .../gerar-documento-assinado (staff, envelope ASSINADO de verdade) passa pelas checagens de papel/status e chega até a geração do PDF — codigo=$CODE (502 é o esperado e tolerado neste sandbox sem Storage real; ver TESTE-127)" \
+  || fail "TESTE-136 gerar-documento-assinado deveria passar das checagens de papel/status (502 esperado sem Storage, nunca 401/403/404/500)" "codigo=$CODE body=$(body)"
+
+echo "--- GET /envelopes/:id/document (interno) agora devolve o campo 'tipo' (ASSINADO/ORIGINAL) — nunca mais um fallback silencioso para o documento sem assinatura. O signed URL de verdade (200) não pode ser obtido neste sandbox (sem Storage real — mesma limitação de TESTE-120/130/136: o caminho FAKE usado no teste também não existe de fato), então o 502 aqui é o mesmo resultado esperado/tolerado; o campo 'tipo' em si (o que muda de comportamento nesta correção) é verificado por revisão estática do código-fonte, mesmo padrão já usado em TESTE-S03/TESTE-24d das fases anteriores para o que exige Storage real ---"
+CODE=$(curl -sS -o /tmp/fase311_resp.json -w '%{http_code}' "$API/api/signatures/envelopes/$ENV_CERT_ID/document" -H "Authorization: Bearer $TOK_COMERCIAL")
+ERRO_DOC_INTERNO=$(jget ".error")
+if [ "$CODE" = "502" ] && echo "$ERRO_DOC_INTERNO" | grep -qi "Falha ao gerar link de download"; then
+  pass "TESTE-137a GET .../document chega até tentar o signed URL do caminho correto (fallback pro original, já que o assinado está null) — codigo=502 é o mesmo limite de ambiente já documentado (sem Storage real neste sandbox), nunca um erro diferente"
+else
+  fail "TESTE-137a GET .../document deveria chegar até a tentativa de signed URL (502 esperado sem Storage real)" "codigo=$CODE erro=$ERRO_DOC_INTERNO"
+fi
+if grep -q "tipo = doc.storage_path_assinado ? 'ASSINADO' : 'ORIGINAL'" api/routes/signatures.js && grep -q "url: signed.signedUrl, validado: doc.validado, expira_em_segundos: 300, tipo" api/routes/signatures.js; then
+  pass "TESTE-137b (CRÍTICO — regressão do gap real 'Baixar documento assinado' abrindo o documento sem assinatura, sem avisar) revisão estática confirma que a resposta de sucesso de GET .../document inclui tipo=ASSINADO/ORIGINAL — a tela agora consegue avisar em vez de abrir calada o arquivo errado (o 200 real só é obtível com Storage de verdade, fora deste sandbox)"
+else
+  fail "TESTE-137b (CRÍTICO) o campo tipo deveria estar presente na resposta de sucesso de GET .../document" "ver api/routes/signatures.js"
 fi
 
 echo "############################################################"

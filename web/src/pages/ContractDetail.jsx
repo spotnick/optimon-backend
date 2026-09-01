@@ -201,10 +201,31 @@ export default function ContractDetail() {
   async function handleVerDocumentoAssinadoContrato() {
     setActionError(null);
     try {
-      const { url } = await api.signatures.document(assinatura.envelope_id);
+      const { url, tipo } = await api.signatures.document(assinatura.envelope_id);
+      if (tipo === 'ORIGINAL') {
+        setActionError('Ainda não existe um PDF assinado (com certificado) gerado — abrindo o documento ORIGINAL, sem assinatura.');
+      }
       window.open(url, '_blank', 'noopener');
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Documento assinado ainda não disponível.');
+    }
+  }
+
+  // Fase 3.11.5.1 — gap real encontrado no seu reteste: um envelope já ASSINADO cujo PDF
+  // final com certificado nunca foi gerado (assinado antes desta correção, ou a geração
+  // automática falhou uma vez e nunca teve nova chance — ela só é tentada 1 vez, no momento
+  // de assinar). Antes disso a tela só dizia "está sendo gerado, aguarde" — para sempre,
+  // sem nenhuma ação possível. Agora um botão dispara a geração sob demanda.
+  async function handleGerarDocumentoAssinadoContrato() {
+    setActionError(null); setBusy(true);
+    try {
+      await api.signatures.gerarDocumentoAssinado(assinatura.envelope_id);
+      setActionMsg('Documento assinado gerado com sucesso.');
+      loadAssinatura();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Erro ao gerar o documento assinado.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -610,6 +631,16 @@ export default function ContractDetail() {
                   Ver documento assinado (PDF, com certificado)
                 </button>
               )}
+              {['ASSINADO', 'VALIDADO'].includes(assinatura.envelope_status) && !assinatura.documento_assinado_disponivel && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                  disabled={busy}
+                  onClick={handleGerarDocumentoAssinadoContrato}
+                >
+                  Gerar documento assinado (PDF, com certificado)
+                </button>
+              )}
               {!['ASSINADO', 'VALIDADO', 'CANCELADO'].includes(assinatura.envelope_status) && (
                 <button
                   className="btn btn-danger"
@@ -621,12 +652,6 @@ export default function ContractDetail() {
                 </button>
               )}
             </div>
-            {['ASSINADO', 'VALIDADO'].includes(assinatura.envelope_status) && !assinatura.documento_assinado_disponivel && (
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 12 }}>
-                O PDF final com o certificado de assinatura ainda está sendo gerado — atualize esta página em
-                alguns instantes.
-              </p>
-            )}
             {assinatura.envelope_status === 'ERRO_ENVIO' && (
               <div style={{ padding: '10px 12px', borderRadius: 6, background: 'rgba(180,40,40,0.1)', marginBottom: 12 }}>
                 <strong style={{ color: 'var(--text-danger, #b42828)' }}>⚠️ FALHA NO ENVIO</strong>

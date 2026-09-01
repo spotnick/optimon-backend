@@ -24,6 +24,7 @@ const { generateProposalPdf } = require('../lib/pdfProposal');
 const { generateContratoPdf } = require('../lib/pdfContrato');
 const { buildSignatureLinkNotifier } = require('../lib/signatureLinkNotifier');
 const { resolvePublicAppBaseUrl } = require('./users');
+const { gerarDocumentoAssinadoContrato } = require('./signaturesExternal');
 
 const signatureLinkNotifier = buildSignatureLinkNotifier();
 
@@ -49,6 +50,31 @@ async function logSemanticEventBestEffort(supabase, params) {
     await supabase.rpc('pricing_log_semantic_event', params);
   } catch (_err) {
     // intencional: log de auditoria nunca bloqueia a ação principal.
+  }
+}
+
+// Fase 3.11.5.1 — mesma técnica de api/routes/users.js:assertAdmin (decodifica só o `sub`
+// do JWT já validado pelo Postgres/PostgREST em toda chamada real; a autorização de verdade
+// é a leitura de `usuarios.perfil` a seguir, nunca o conteúdo do token por si só). Papéis
+// exigidos aqui mirroram exatamente a policy documentos_assinados_write (RLS) — nunca uma
+// regra nova e divergente.
+function decodeJwtSub(jwt) {
+  try {
+    const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
+    return payload.sub || null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function assertPodeGerarDocumentoAssinado(req) {
+  const sub = decodeJwtSub(req.userJwt);
+  if (!sub) throw new Error('PERMISSAO_NEGADA: token inválido.');
+  const supabase = clientForRequest(req.userJwt);
+  const { data, error } = await supabase.from('usuarios').select('perfil, ativo').eq('id', sub).maybeSingle();
+  if (error) throw error;
+  if (!data || !data.ativo || !['COMERCIAL', 'DIRETOR', 'ADMINISTRADOR'].includes(data.perfil)) {
+    throw new Error('PERMISSAO_NEGADA: só COMERCIAL/DIRETOR/ADMINISTRADOR pode gerar o documento assinado.');
   }
 }
 
@@ -556,12 +582,68 @@ router.get('/envelopes/:id/document', async (req, res) => {
   if (error) return handleError(res, error);
   if (!doc) return res.status(404).json({ error: `Nenhum documento assinado registrado ainda para o envelope ${req.params.id}.` });
 
+  // Fase 3.11.5.1 — GAP REAL encontrado no reteste do usuário: este fallback (devolver o
+  // original quando o assinado ainda não existe) já era intencional desde a Fase 2.5, mas
+  // até esta correção o caller nunca sabia qual dos dois tinha recebido — "Baixar documento
+  // assinado" abria, silenciosamente, o documento SEM assinatura. Agora a resposta inclui
+  // `tipo` (ASSINADO/ORIGINAL) para a tela avisar corretamente, em vez de nunca dizer nada.
   const path = doc.storage_path_assinado || doc.storage_path_original;
   if (!path) return res.status(404).json({ error: 'Documento sem caminho de Storage registrado.' });
+  const tipo = doc.storage_path_assinado ? 'ASSINADO' : 'ORIGINAL';
 
   const { data: signed, error: signError } = await supabase.storage.from('documentos').createSignedUrl(path, 300);
   if (signError) return res.status(502).json({ error: `Falha ao gerar link de download: ${signError.message}.` });
-  return res.json({ url: signed.signedUrl, validado: doc.validado, expira_em_segundos: 300 });
+  return res.json({ url: signed.signedUrl, validado: doc.validado, expira_em_segundos: 300, tipo });
+});
+
+// POST /api/signatures/envelopes/:id/gerar-documento-assinado — Fase 3.11.5.1 (gap real
+// encontrado no reteste do usuário: um envelope já ASSINADO, mas cujo PDF final com
+// certificado nunca foi gerado com sucesso — ex.: assinado antes desta fase, quando a
+// geração automática ainda não existia, ou quando a geração automática falhou e nunca teve
+// nova chance, porque só é tentada 1 vez, dentro de POST .../assinar/confirmar). Reaproveita
+// 100% a mesma função usada pelo fluxo externo (gerarDocumentoAssinadoContrato, em
+// signaturesExternal.js) — chamada aqui com o client anônimo do próprio backend (nunca o
+// JWT do funcionário, para não exigir nenhum grant novo às RPCs escopadas por token), usando
+// o token de acesso de um signatário do envelope (authenticated já pode ler
+// signature_signers.token_acesso via RLS — signature_signers_select). Só COMERCIAL/
+// DIRETOR/ADMINISTRADOR (mesmos papéis de documentos_assinados_write).
+router.post('/envelopes/:id/gerar-documento-assinado', async (req, res) => {
+  try {
+    await assertPodeGerarDocumentoAssinado(req);
+  } catch (err) {
+    return res.status(403).json({ error: err.message });
+  }
+  const supabase = clientForRequest(req.userJwt);
+  const { data: envelope, error: envError } = await supabase
+    .from('signature_envelopes')
+    .select('id, tipo_documento, status')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (envError) return handleError(res, envError);
+  if (!envelope) return res.status(404).json({ error: `Envelope ${req.params.id} não encontrado.` });
+  if (envelope.tipo_documento !== 'CONTRATO') {
+    return res.status(400).json({ error: 'Geração sob demanda do PDF final com certificado só está implementada para tipo_documento=CONTRATO nesta fase.' });
+  }
+  if (!['ASSINADO', 'VALIDADO'].includes(envelope.status)) {
+    return res.status(409).json({ error: `Envelope ainda não está assinado (status atual: ${envelope.status}) — não há o que gerar.` });
+  }
+
+  const { data: signerRow, error: signerError } = await supabase
+    .from('signature_signers')
+    .select('token_acesso')
+    .eq('envelope_id', req.params.id)
+    .order('ordem')
+    .limit(1)
+    .maybeSingle();
+  if (signerError) return handleError(res, signerError);
+  if (!signerRow?.token_acesso) return res.status(500).json({ error: 'Nenhum signatário com token de acesso encontrado neste envelope.' });
+
+  try {
+    await gerarDocumentoAssinadoContrato({ supabase: anonClient(), token: signerRow.token_acesso, ip: req.ip || req.headers['x-forwarded-for'] || null });
+  } catch (err) {
+    return res.status(502).json({ error: `Falha ao gerar o PDF final assinado: ${err.message || err}.` });
+  }
+  return res.json({ ok: true });
 });
 
 // GET /api/signatures/envelopes/:id/audit — getAuditTrail (seção 5) — eventos

@@ -267,6 +267,10 @@ export const api = {
     send: (id) => request(`/api/signatures/envelopes/${id}/send`, { method: 'POST' }),
     cancel: (id, body) => request(`/api/signatures/envelopes/${id}/cancel`, { method: 'POST', body }),
     document: (id) => request(`/api/signatures/envelopes/${id}/document`),
+    // Fase 3.11.5.1: gerar/re-gerar sob demanda o PDF final com certificado — para um
+    // envelope já ASSINADO cuja geração automática nunca aconteceu (ex.: assinado antes
+    // desta fase) ou falhou.
+    gerarDocumentoAssinado: (id) => request(`/api/signatures/envelopes/${id}/gerar-documento-assinado`, { method: 'POST' }),
     audit: (id) => request(`/api/signatures/envelopes/${id}/audit`),
     validate: (id) => request(`/api/signatures/envelopes/${id}/validate`, { method: 'POST' }),
   },

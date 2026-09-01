@@ -267,29 +267,79 @@ final ainda não ficou pronto, uma nota explica que ele está sendo gerado.
 
 ---
 
+## Fase 3.11.5.1 — correção retroativa (2 problemas reais do seu reteste, envelope real 800aa6a6-bbb2-4a68-994a-614ed971a49d)
+
+Depois de aplicadas todas as correções acima, você reportou que "Ver PDF assinado (com
+certificado)" (tela pública) e "Baixar documento assinado" (tela interna) continuavam abrindo
+o documento **sem** assinatura — e confirmou que esse contrato específico foi assinado **antes**
+de você ter rodado a correção de Storage. Isso levou a um 4º problema real, mais fundo:
+
+**Causa raiz**: a função antiga `app.confirmar_assinatura_via_link` (Fase 3.11.4, já removida)
+gravava `documentos_assinados.storage_path_assinado` como cópia exata do original — o "bug 4"
+original desta fase. A nova função (`assinatura_externa_assinar_confirmar`) insere nessa mesma
+tabela com `on conflict (envelope_id) do update` — e esse UPSERT só atualiza
+`storage_path_original`/`hash_sha256_original`, nunca toca `storage_path_assinado`. Ou seja:
+para qualquer envelope que já tinha essa linha "poluída" de antes desta fase, o valor errado
+ficou preso lá para sempre — e `documento_assinado_disponivel` (que só checa "não é null") lia
+isso como "documento assinado disponível", quando na verdade é o documento sem assinatura
+nenhuma.
+
+**Correção (3 partes)**:
+1. Nova migration `20261008100000_..._repara_documento_assinado_retroativo.sql` — reseta para
+   `null` todo `storage_path_assinado`/`hash_sha256_assinado` que hoje é uma cópia exata do
+   original (a única forma de isso ter acontecido, através da função já removida — nunca mais
+   pode se repetir). Nenhuma linha de assinatura em si é tocada — a assinatura continua válida,
+   só o ponteiro para o arquivo errado é corrigido.
+2. Nova rota autenticada `POST /envelopes/:id/gerar-documento-assinado` (só
+   COMERCIAL/DIRETOR/ADMINISTRADOR) — necessária porque a geração automática só é tentada 1 vez,
+   no instante de assinar; um envelope já concluído nunca passa por ali de novo. Reaproveita a
+   mesma função do fluxo externo (nenhuma lógica duplicada). Botão **"Gerar documento assinado"**
+   agora aparece em `ContractDetail.jsx` e `SignatureDetail.jsx` sempre que o envelope está
+   assinado mas o PDF final ainda não existe.
+3. `GET /envelopes/:id/document` (interno) agora devolve um campo `tipo`
+   (`ASSINADO`/`ORIGINAL`) — antes, quando o PDF final não existia, a rota sempre devolvia o
+   original como fallback silencioso, e "Baixar documento assinado" abria esse arquivo sem
+   nenhum aviso. Agora a tela mostra um aviso claro antes de abrir o documento errado.
+
+**Ação necessária da sua parte, especificamente para o envelope 800aa6a6**: depois do deploy
+desta correção, abra `/assinaturas/800aa6a6-bbb2-4a68-994a-614ed971a49d` e clique em "Gerar
+documento assinado" — isso vai corrigir o ponteiro e gerar o PDF final de verdade para esse
+contrato específico (a migration só reseta o ponteiro errado; a geração em si precisa ser
+disparada, já que não roda mais sozinha para um envelope já concluído).
+
+Suíte de testes: **146 PASS / 0 FAIL** (9 testes novos, incluindo a reprodução controlada do
+estado poluído e a prova de que a migration de reparo o corrige).
+
+---
+
 ## O que falta para "resolvido" de fato
 
-1. **Dar `git commit` + `push`** dos 11 arquivos alterados/novos desta fase (já sincronizados
-   na sua pasta OneDrive, incluindo o novo botão em `web/src/pages/ContractDetail.jsx` — item
-   4-C) — não posso fazer isso a partir deste ambiente.
-2. **Aplicar a migration `20261008090000_phase_3_11_05_correcoes_pos_deploy.sql`** em produção
-   (Supabase) — mesmo processo já usado nas fases anteriores.
+1. **Dar `git commit` + `push`** dos 14 arquivos alterados/novos desta fase (já sincronizados
+   na sua pasta OneDrive) — não posso fazer isso a partir deste ambiente.
+2. **Aplicar, em ordem, as 2 migrations em produção (Supabase)**:
+   `20261008090000_phase_3_11_05_correcoes_pos_deploy.sql` e, logo depois,
+   `20261008100000_phase_3_11_05_01_repara_documento_assinado_retroativo.sql` (a nova, desta
+   correção retroativa) — mesmo processo já usado nas fases anteriores.
 3. **Rodar de novo `supabase/storage_setup_fase25.sql` inteiro no SQL Editor do seu projeto
-   Supabase** (itens 1-B e 4-B acima) — é a única forma de aplicar as novas policies
-   (`documentos_bucket_select_envelopes_anon` para o "Object not found",
-   `documentos_bucket_write_assinado_anon`/`..._update_assinado_anon` para o PDF final nunca
-   ficar disponível); o arquivo é idempotente, pode rodar tudo de novo sem risco às policies já
-   existentes.
+   Supabase**, se ainda não rodou a versão mais recente (itens 1-B e 4-B) — é a única forma de
+   aplicar as policies que corrigem o "Object not found" e o PDF final nunca ficar disponível;
+   o arquivo é idempotente, pode rodar tudo de novo sem risco às policies já existentes.
 4. **Redeploy** Railway (backend) + Vercel (frontend) — nenhuma variável de ambiente nova é
    necessária (reaproveita `OTP_HASH_PEPPER`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, todas já
    configuradas desde a Fase 3.11.3/3.11.4).
-5. Um novo teste manual real, ponta a ponta, depois do redeploy + da policy de Storage: abrir
-   "Revisar documento" antes de assinar (deve abrir o PDF, não mais dar erro), assinar um
-   contrato de teste, digitar um CPF inválido de propósito (deve bloquear), confirmar o OTP
-   chegando por e-mail, e — depois de assinado — abrir o PDF final e conferir que ele mostra a
-   página de certificado com nome/CPF/data/IP corretos.
+5. **Especificamente para o contrato 800aa6a6**: depois do deploy, abra
+   `/assinaturas/800aa6a6-bbb2-4a68-994a-614ed971a49d` e clique em "Gerar documento assinado" —
+   a migration só corrige o ponteiro errado no banco, a geração do PDF em si precisa ser
+   disparada manualmente para esse contrato específico (já assinado antes desta correção).
+6. Um novo teste manual real, ponta a ponta, com um contrato NOVO, depois de tudo acima: abrir
+   "Revisar documento" antes de assinar (deve abrir o PDF, não mais dar erro), assinar,
+   digitar um CPF inválido de propósito (deve bloquear), confirmar o OTP chegando por e-mail,
+   e — depois de assinado — abrir o PDF final (tanto pela tela pública quanto por
+   `ContractDetail.jsx`) e conferir que mostra a página de certificado com nome/CPF/data/IP
+   corretos, sem precisar de nenhuma ação manual (a geração automática deve funcionar sozinha
+   para um contrato assinado depois de todas as correções aplicadas).
 
-Até esses itens serem concluídos por você, este relatório considera os 4 problemas
-**corrigidos e provados no nível de código e de teste automatizado** (137/137), mas a
+Até esses itens serem concluídos por você, este relatório considera os problemas
+**corrigidos e provados no nível de código e de teste automatizado** (146/146), mas a
 **confirmação real em produção (Storage + e-mail chegando) ainda pendente** — a mesma
 distinção que os relatórios desta fase sempre fazem questão de manter.

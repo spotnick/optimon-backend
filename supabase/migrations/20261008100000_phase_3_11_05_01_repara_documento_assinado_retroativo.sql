@@ -1,0 +1,44 @@
+-- OptiMon — Fase 3.11.5.1: correção retroativa de um bug real encontrado no seu próprio
+-- reteste em produção (envelope real 800aa6a6-bbb2-4a68-994a-614ed971a49d): tanto "Ver PDF
+-- assinado (com certificado)" (tela pública) quanto "Baixar documento assinado" (tela
+-- interna /assinaturas/:id) abrem o documento ORIGINAL, sem nenhuma assinatura.
+--
+-- CAUSA RAIZ (confirmada por leitura de código, não presumida): a função antiga
+-- app.confirmar_assinatura_via_link (Fase 3.11.4, já removida por esta mesma Fase 3.11.5)
+-- gravava documentos_assinados.storage_path_assinado como uma CÓPIA EXATA de
+-- storage_path_original — nunca um PDF real. É exatamente o "bug 4" que esta fase já
+-- documentou e corrigiu (ver FASE_3_11_5_RELATORIO_FINAL.md). Todo envelope que já tinha
+-- sido assinado ANTES do deploy desta fase ficou com essa linha "poluída" gravada no banco.
+--
+-- GAP NOVO, encontrado agora: a nova função app.assinatura_externa_assinar_confirmar (Fase
+-- 3.11.5) insere em documentos_assinados com
+--   "on conflict (envelope_id) do update set storage_path_original = ..., hash_sha256_original = ..."
+-- — ou seja, quando já existia uma linha antiga (poluída) para o mesmo envelope_id, o
+-- UPSERT nunca tocava storage_path_assinado/hash_sha256_assinado, preservando o valor
+-- errado indefinidamente. Resultado visível: documento_assinado_disponivel (que só checa
+-- "storage_path_assinado is not null") ficava true por engano — a tela pública nunca
+-- mostrava "Gerando PDF final…" (deveria) e tanto ela quanto o botão interno abriam,
+-- silenciosamente, o documento sem assinatura, achando que era o assinado.
+--
+-- CORREÇÃO (2 partes):
+--   1) Este arquivo: reseta para null todo storage_path_assinado/hash_sha256_assinado que
+--      hoje é uma cópia exata do storage_path_original do mesmo registro — a única forma de
+--      isso ter acontecido é através da função antiga já removida (nunca mais pode
+--      acontecer de novo). Nenhuma linha de assinatura em si é tocada
+--      (signature_signers/signature_envelopes ficam 100% intactos — a assinatura em si
+--      continua legítima e válida; só o PONTEIRO para o arquivo errado é corrigido, voltando
+--      a "ainda não gerado", o estado real).
+--   2) api/routes/signatures.js: nova rota autenticada
+--      POST /envelopes/:id/gerar-documento-assinado, para COMERCIAL/DIRETOR/ADMINISTRADOR
+--      gerar (ou re-gerar) o PDF final com certificado sob demanda. Necessária porque a
+--      geração automática (api/routes/signaturesExternal.js) só acontece 1 VEZ, no instante
+--      de POST /assinar/confirmar — um envelope já concluído (como este) nunca mais passa
+--      por ali sozinho. A rota nova reaproveita a MESMA função gerarDocumentoAssinadoContrato
+--      já usada pelo fluxo externo (nenhuma lógica duplicada) — nenhum grant novo a
+--      `authenticated` é necessário: ela é chamada com o client anônimo do próprio backend,
+--      usando o token de acesso de um signatário do envelope (já legível por `authenticated`
+--      via RLS de signature_signers, nunca exposto ao navegador do funcionário).
+update public.documentos_assinados
+set storage_path_assinado = null, hash_sha256_assinado = null
+where storage_path_assinado is not null
+  and storage_path_assinado = storage_path_original;

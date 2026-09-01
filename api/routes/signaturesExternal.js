@@ -22,6 +22,15 @@
 //   4. Nova rota GET .../document-assinado: só fica disponível depois que o PDF final
 //      (com página de certificado de assinatura) é gerado de verdade pelo Node — nunca
 //      uma cópia do original.
+//
+// Fase 3.11.5.1 (correção retroativa, gap real encontrado no reteste do usuário):
+// gerarDocumentoAssinadoContrato() agora é exportada (router.gerarDocumentoAssinadoContrato)
+// para ser reaproveitada por api/routes/signatures.js — uma rota AUTENTICADA nova
+// (POST /envelopes/:id/gerar-documento-assinado) para o ADMINISTRADOR gerar/re-gerar o PDF
+// final de um envelope que já foi assinado mas nunca teve o PDF gerado com sucesso (ex.:
+// assinado antes desta fase, quando a única linha de documentos_assinados ficou "poluída"
+// com uma cópia do original — ver migration 20261008100000_..._repara_..._retroativo.sql).
+// Nenhuma lógica duplicada: é a mesma função, só chamada de um outro lugar.
 
 const express = require('express');
 const crypto = require('crypto');
@@ -256,5 +265,11 @@ router.post('/:token/recusar', async (req, res) => {
   if (error) return handleError(res, error);
   return res.json(data);
 });
+
+// Fase 3.11.5.1: expõe a função no próprio objeto router (uma função Express já é um
+// objeto JS válido) — server.js continua fazendo `app.use(..., signaturesExternalRoutes)`
+// sem nenhuma mudança; signatures.js só acrescenta
+// `require('./signaturesExternal').gerarDocumentoAssinadoContrato`.
+router.gerarDocumentoAssinadoContrato = gerarDocumentoAssinadoContrato;
 
 module.exports = router;
