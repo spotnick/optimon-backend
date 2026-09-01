@@ -51,17 +51,48 @@ Nenhuma segunda solução foi criada onde já existia uma: o webhook do Resend �
 endpoint da Fase 3.11.3 (só ganhou um fallback de busca); a URL base do link é a mesma
 `PUBLIC_APP_URL`/`CORS_ALLOWED_ORIGINS` já usada para o e-mail de redefinição de senha.
 
-## ENVELOPE 571AA526 (status real)
+## ENVELOPE 571AA526 (status real — CONFIRMADO com dados reais de produção em 01/09/2026)
 
-**Ainda não confirmado.** Este sandbox de desenvolvimento não tem rota para o Supabase de
-produção. Foi entregue a você, nesta conversa, um SQL somente-leitura (6 SELECTs, sem nenhum
-UPDATE/DELETE) para rodar no SQL Editor do Supabase de produção e colar o resultado — ainda
-não recebido. Até esse resultado chegar, o único fato provado sobre esse envelope é o que a
-auditoria de código já demonstrou: como **nenhum provedor real de e-mail jamais existiu antes
-desta fase**, é tecnicamente certo que nenhum e-mail foi enviado para os 3 signatários
-daquele envelope especificamente — mas isso ainda não foi confirmado com os dados reais do
-próprio envelope (provider usado, timestamps, eventos, erro_mensagem). Assim que você colar o
-resultado, este relatório será complementado com o status real linha a linha.
+Produção está na **Fase 3.11.3** (`tem_fase_3_11_2=true`, `tem_fase_3_11_3=true`,
+`tem_fase_3_11_4=false`) — a migration desta fase (`20261006090000...sql`) ainda **não foi
+aplicada** lá.
+
+O envelope usou o provider **"Teste Interno"** (`id=a2b1ca4a-...`), **tipo
+ICP_BRASIL_HOMOLOGACAO_MOCK**, ambiente HOMOLOGACAO — ou seja, mesmo em produção, nenhum
+provedor real (nem ICP-Brasil terceirizado, nem o novo `OPTIMON_INTERNO_RESEND`) jamais foi
+usado para este contrato. `provider_envelope_id = "MOCK-ENV-d59e0a68-..."` confirma o formato
+sintético gerado pelo `MockHomologacaoProvider`, que nunca toca rede.
+
+A trilha de auditoria completa prova a causa raiz de forma definitiva: às 23:03:46.73603 (UTC,
+31/08), o envelope e os 3 signatários mudam de CRIADO→ENVIADO **na mesma linha de auditoria,
+no mesmíssimo timestamp, até o microssegundo** — só possível numa única transação de banco que
+marca tudo de uma vez, nunca 3 chamadas HTTP reais e independentes a um provedor de e-mail
+(essas teriam timestamps ligeiramente diferentes por causa do round-trip de rede). Zero
+eventos em `signature_events` (nenhum webhook jamais recebido) e zero linhas em
+`documentos_evidencias` — nenhum provedor real jamais foi contatado.
+
+Depois disso, alguém tentou **"Reenviar"** duas vezes — para Rodrigo (borghi@outlook.pt) às
+01/09 00:13:35 e para Rodrigo (rodrigo@nicknetwork.com.br) às 01/09 00:14:15
+(`reenvios_count: 0→1` em ambos, ação `SIGNATURE_SIGNER_RESEND`) — mas como a função legada
+`app.reenviar_assinatura_signatario` (Fase 3.11.2) também marca ENVIADO de forma incondicional,
+esses 2 reenvios **também não dispararam nenhum e-mail real**, pelo mesmíssimo motivo. Nadia
+(cussolinnadia@gmail.com) nunca teve nenhum reenvio tentado — segue com o `enviado_em`
+original de 31/08 23:03:46.
+
+**Status atual (01/09/2026)**: envelope `571aa526` continua com `status=ENVIADO`,
+`erro_mensagem=null` (o sistema não registra erro porque, do ponto de vista do código antigo,
+"deu certo" — mesmo sem nada ter sido enviado). Os 3 signatários continuam `status=ENVIADO`,
+`entregue_em`/`aberto_em`/`assinado_em` todos `null`. Nenhum documento assinado existe.
+
+### O que fazer com este envelope específico
+
+Ele não pode simplesmente "virar" `OPTIMON_INTERNO_RESEND` — o provider de um envelope é fixo
+desde a criação. O caminho limpo, usando o que esta fase já entrega, é: (1) aplicar a
+migration `20261006090000...sql` em produção; (2) cadastrar (ou confirmar que já existe) um
+provider com `tipo=OPTIMON_INTERNO_RESEND`; (3) cancelar o envelope 571aa526 (ação
+DIRETOR/ADMINISTRADOR — o histórico dele fica preservado, nunca apagado); (4) criar um novo
+envelope para o mesmo contrato (`b0001737-a415-413c-b7d9-75ddde36a398`) com o provider novo,
+adicionar os mesmos 3 signatários e enviar de verdade.
 
 ## CAUSA RAIZ (provada, não presumida)
 
@@ -176,17 +207,26 @@ vínculo proposta↔contrato, permissões, segurança).
 
 ## O que falta para "resolvido" de fato (seção 19 do pedido — nunca declarado sem prova)
 
-1. Você colar o resultado do SQL de investigação do envelope `571aa526` (já entregue nesta
-   conversa) — para confirmar seu status real e, se ainda estiver ativo, permitir reenviá-lo
-   pelo novo caminho.
-2. Confirmar `RESEND_API_KEY`/`RESEND_FROM_EMAIL`/`PUBLIC_APP_URL` configuradas na Railway em
-   produção (já confirmado na Fase 3.11.3 para o OTP — a mesma chave agora também serve para
-   o link de assinatura, nenhuma variável nova).
-3. Um teste manual real em produção/stage: criar um envelope com o novo provider, enviar,
-   confirmar o e-mail chegando numa caixa real, abrir o link, assinar.
-4. Rodar as migrations desta fase (`20261006090000...sql`) em produção (Supabase) — ainda não
-   aplicada lá, só neste ambiente de desenvolvimento.
+1. ~~Investigar o envelope 571aa526~~ — **feito**, com dados reais de produção (ver seção
+   acima): causa raiz confirmada, provider MOCK/homologação, zero envio real, 2 reenvios que
+   também não enviaram nada.
+2. Aplicar a migration `20261006090000_phase_3_11_04_assinatura_envio_real_resend.sql` em
+   produção (Supabase) — ainda não aplicada lá, confirmado pelo bloco 0 do SQL
+   (`tem_fase_3_11_4=false`).
+3. ~~Confirmar `RESEND_API_KEY`/`RESEND_FROM_EMAIL` na Railway~~ — **confirmado por você**:
+   já configuradas há tempo (é o que faz o resto do envio de e-mail do sistema funcionar
+   hoje). Nenhuma variável nova é necessária — o link de assinatura usa exatamente a mesma
+   chave. Falta só confirmar `PUBLIC_APP_URL` (usada para montar o link
+   `{PUBLIC_APP_URL}/assinar/{token}`) — se não estiver setada, o sistema tenta um fallback
+   a partir de `CORS_ALLOWED_ORIGINS`, mas não é recomendado depender dele em produção.
+4. Cadastrar um provider `tipo=OPTIMON_INTERNO_RESEND` em produção (ou confirmar que já
+   existe) e decidir o que fazer com o envelope 571aa526 (cancelar + recriar — ver seção
+   acima) e com os 3 signatários reais (Rodrigo/rodrigo@nicknetwork.com.br,
+   Nadia/cussolinnadia@gmail.com, Rodrigo/borghi@outlook.pt).
+5. Um teste manual real em produção/stage: enviar o novo envelope, confirmar o e-mail
+   chegando numa caixa real, abrir o link, assinar.
 
-Até esses 4 itens serem confirmados por você, este relatório considera a correção **provada
-no nível de código e de teste automatizado**, mas **não confirmada em produção** — exatamente
+Até esses itens serem concluídos por você, este relatório considera a correção **provada no
+nível de código e de teste automatizado, e a causa raiz do envelope 571aa526 confirmada com
+dados reais**, mas a **entrega real de e-mail em produção ainda não confirmada** — exatamente
 a distinção que esta fase inteira existe para impor.
