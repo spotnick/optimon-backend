@@ -84,6 +84,36 @@ export const api = {
   health: () => request('/health'),
   version: () => request('/api/version'),
 
+  // OptiMap (Fase 3) — mapa: sessão/perfil, resumo por camada, busca, detalhe e
+  // enquadramento de cidade. Os tiles MVT não passam por aqui: o MapLibre os busca
+  // direto (optimapTileUrl + transformRequest com o mesmo JWT) — ver pages/OptiMap.jsx.
+  optimap: {
+    sessao: () => request('/api/optimap/sessao'),
+    resumo: () => request('/api/optimap/resumo'),
+    buscar: (q) => request(`/api/optimap/buscar?q=${encodeURIComponent(q)}`),
+    detalhe: (camada, id) => request(`/api/optimap/detalhe/${camada}/${id}`),
+    extensaoCidade: (id) => request(`/api/optimap/cidades/${id}/extensao`),
+    // Fase 4 — importação de postes de referência (arquivo do coletor por município).
+    importacoes: {
+      listar: () => request('/api/optimap/importacoes'),
+      enviar: (formData) => uploadMultipart('/api/optimap/importacoes', formData),
+      detalhe: (id) => request(`/api/optimap/importacoes/${id}`),
+      itens: (id, { classificacao, busca, limite = 100, offset = 0 } = {}) => {
+        const q = new URLSearchParams({ limite: String(limite), offset: String(offset) });
+        if (classificacao) q.set('classificacao', classificacao);
+        if (busca) q.set('busca', busca);
+        return request(`/api/optimap/importacoes/${id}/itens?${q}`);
+      },
+      previa: (id) => request(`/api/optimap/importacoes/${id}/previa.geojson`),
+      decidir: (id, itemIds, decisao) => request(`/api/optimap/importacoes/${id}/decisoes`, { method: 'POST', body: { item_ids: itemIds, decisao } }),
+      reprocessar: (id) => request(`/api/optimap/importacoes/${id}/reprocessar`, { method: 'POST', body: {} }),
+      aprovar: (id, body) => request(`/api/optimap/importacoes/${id}/aprovar`, { method: 'POST', body }),
+      rejeitar: (id, motivo) => request(`/api/optimap/importacoes/${id}/rejeitar`, { method: 'POST', body: { motivo } }),
+      descartar: (id, motivo) => request(`/api/optimap/importacoes/${id}/descartar`, { method: 'POST', body: { motivo } }),
+      reverter: (id, motivo) => request(`/api/optimap/importacoes/${id}/reverter`, { method: 'POST', body: { motivo } }),
+    },
+  },
+
   cities: {
     list: (filtro) => request(`/api/cities${filtro ? `?filtro=${filtro}` : ''}`),
     detail: (id) => request(`/api/cities/${id}`),
@@ -383,4 +413,8 @@ async function uploadMultipart(path, formData) {
   return payload;
 }
 
-export { ApiError, apiDownload };
+// OptiMap: URL-modelo dos vector tiles servidos pela API ({z}/{x}/{y} preenchidos pelo
+// MapLibre) — o mesmo API_URL de todas as outras chamadas.
+const optimapTileUrl = (camada) => `${API_URL}/api/optimap/tiles/${camada}/{z}/{x}/{y}.mvt`;
+
+export { ApiError, apiDownload, optimapTileUrl, API_URL };

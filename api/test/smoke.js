@@ -57,6 +57,33 @@ async function main() {
   const noAuthPricing = await request(server, '/api/pricing/current-role');
   check('GET /api/pricing/current-role sem Authorization -> 401', noAuthPricing.status === 401);
 
+  // OptiMap (Fase 3): mapa nunca anônimo — tiles, busca e detalhe exigem JWT.
+  const noAuthTile = await request(server, '/api/optimap/tiles/pops/10/1/1.mvt');
+  check('GET /api/optimap/tiles/... sem Authorization -> 401', noAuthTile.status === 401);
+  const noAuthBusca = await request(server, '/api/optimap/buscar?q=poste');
+  check('GET /api/optimap/buscar sem Authorization -> 401', noAuthBusca.status === 401);
+  // OptiMap (Fase 4): importações também nunca anônimas.
+  const noAuthImp = await request(server, '/api/optimap/importacoes');
+  check('GET /api/optimap/importacoes sem Authorization -> 401', noAuthImp.status === 401);
+  const noAuthImpPost = await request(server, '/api/optimap/importacoes', { method: 'POST' });
+  check('POST /api/optimap/importacoes sem Authorization -> 401', noAuthImpPost.status === 401);
+
+  // Leitor do arquivo do coletor: confere formato e o hash gravado pelo coletor.
+  const { _lerArquivo } = require('../routes/optimapImportacoes');
+  const crypto = require('crypto');
+  const features = [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-52.46, -23.62] },
+    properties: { num_seq_geo: '123', situacao: 'Disponível', indic_ps_particular: 'N', objectid: 9 } }];
+  const meta = { formato: 'optimap-referencia-postes/1', fonte: 'COPEL_MAPA_PUBLICO', total: 1,
+    sha256_features: crypto.createHash('sha256').update(JSON.stringify(features)).digest('hex') };
+  const ok = _lerArquivo(Buffer.from(JSON.stringify({ type: 'FeatureCollection', optimap: meta, features })));
+  check('leitor: arquivo íntegro vira itens {linha,id_externo,lon,lat,situacao}', ok.itens.length === 1 && ok.itens[0].id_externo === '123' && ok.itens[0].lon === -52.46 && ok.itens[0].situacao === 'Disponível');
+  let recusado = false;
+  try { features[0].geometry.coordinates[0] = -52.47; _lerArquivo(Buffer.from(JSON.stringify({ type: 'FeatureCollection', optimap: meta, features }))); } catch (e) { recusado = /hash/.test(e.message); }
+  check('leitor: arquivo editado após a coleta (hash não confere) é recusado', recusado);
+  let semCab = false;
+  try { _lerArquivo(Buffer.from(JSON.stringify({ type: 'FeatureCollection', features }))); } catch (e) { semCab = /cabeçalho/.test(e.message); }
+  check('leitor: GeoJSON sem cabeçalho do coletor é recusado', semCab);
+
   server.close();
 
   console.log('');

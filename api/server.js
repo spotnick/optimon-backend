@@ -28,6 +28,7 @@ const { router: signaturesRoutes, webhookRouter: signaturesWebhookRoutes } = req
 const contractsRoutes = require('./routes/contracts');
 const reportsRoutes = require('./routes/reports');
 const assetsRoutes = require('./routes/assets');
+const optimapRoutes = require('./routes/optimap');
 const { router: emailWebhooksRoutes } = require('./routes/emailWebhooks');
 const { getVersionInfo } = require('./lib/version');
 
@@ -113,6 +114,8 @@ app.use('/api/signatures', requireAuth, signaturesRoutes);
 app.use('/api/contracts', requireAuth, contractsRoutes);
 app.use('/api/reports', requireAuth, reportsRoutes);
 app.use('/api/assets', requireAuth, assetsRoutes);
+// OptiMap (Fase 3): mapa — tiles MVT, busca, detalhe. Mesmo requireAuth + JWT repassado.
+app.use('/api/optimap', requireAuth, optimapRoutes);
 
 // GET /health — seção 6/40: contrato exato exigido pelo checklist de deploy.
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'optimon-api' }));

@@ -53,3 +53,6 @@ coverage/
 
 # --- PostgREST local dev config (pode referenciar credenciais locais) ---
 supabase/dev-local-only/postgrest.local.conf
+
+# --- OptiMap: dados coletados de fontes externas (uso interno, nunca redistribuir/versionar) ---
+tools/optimap/saida/

@@ -7,6 +7,9 @@ const ENV = import.meta.env.VITE_APP_ENVIRONMENT || 'DEMONSTRAÇÃO';
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '◧' },
   { to: '/cidades', label: 'Cidades & Infraestrutura', icon: '◈' },
+  // OptiMap (Fase 3): só aparece para perfis com acesso ao mapa (espelha app.gis_pode_ver;
+  // a API e o banco aplicam a mesma regra de novo — o menu é só conveniência).
+  { to: '/optimap', label: 'OptiMap', icon: '⌖', perfis: ['ADMINISTRADOR', 'DIRETOR', 'ENGENHARIA', 'COMERCIAL', 'AUDITOR'] },
   { to: '/simulacao', label: 'Nova Simulação', icon: '✎' },
   { to: '/propostas', label: 'Propostas', icon: '▤' },
   { to: '/proponentes', label: 'Proponentes', icon: '⌂' },
@@ -50,7 +53,7 @@ export default function Layout() {
           />
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => !item.perfis || item.perfis.includes(role)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

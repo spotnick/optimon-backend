@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -26,6 +27,12 @@ import Reports from './pages/Reports';
 import Alerts from './pages/Alerts';
 import PartnerExternalProposal from './pages/PartnerExternalProposal';
 import SignExternal from './pages/SignExternal';
+
+// OptiMap (Fase 3): carregado sob demanda — o MapLibre (~800 kB) só é baixado por quem
+// abre o mapa; as demais telas não pagam esse custo.
+const OptiMap = lazy(() => import('./pages/OptiMap'));
+// OptiMap Fase 4: importações de postes de referência (mesmo chunk de mapa, sob demanda).
+const OptiMapImportacoes = lazy(() => import('./pages/OptiMapImportacoes'));
 
 export default function App() {
   return (
@@ -73,6 +80,25 @@ export default function App() {
         <Route path="/configuracoes/assinatura" element={<SignatureSettings />} />
         <Route path="/auditoria" element={<Audit />} />
         <Route path="/ajuda" element={<Help />} />
+        <Route
+          path="/optimap"
+          element={(
+            <Suspense fallback={<div className="om-carregando-pagina" style={{ padding: 48, display: 'flex', gap: 12, alignItems: 'center', color: 'var(--text-muted)' }}><div className="spinner" /> Carregando o mapa…</div>}>
+              <OptiMap />
+            </Suspense>
+          )}
+        />
+        {['/optimap/importacoes', '/optimap/importacoes/:id'].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={(
+              <Suspense fallback={<div style={{ padding: 48, display: 'flex', gap: 12, alignItems: 'center', color: 'var(--text-muted)' }}><div className="spinner" /> Carregando…</div>}>
+                <OptiMapImportacoes />
+              </Suspense>
+            )}
+          />
+        ))}
       </Route>
     </Routes>
   );
