@@ -57,6 +57,10 @@ const ALERTAS = {
   AUSENTE_COM_POSTE_NICK: 'ausente, mas usado pela rede NICK',
   JA_NAO_LOCALIZADO: 'já estava não localizado',
 };
+// Textos de aviso mais claros que os gravados pelo banco (mesmo código).
+const AVISOS = {
+  MUNICIPIO_SEM_CIDADE_NICK: 'Este município ainda não está cadastrado como cidade no OptiMon. Os postes aparecem normalmente no mapa; só não ficam vinculados a uma cidade. Ao cadastrar a cidade (com o código IBGE), a próxima coleta faz o vínculo.',
+};
 const motivo = (m) => (m ? MOTIVOS[m] || m.replace(/_/g, ' ').toLowerCase() : '');
 const n = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR'));
 const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -365,6 +369,11 @@ function Detalhe({ id, sessao }) {
           {meta.baixados != null && (
             <p className="oi-muted">Coletor: {n(meta.baixados)} baixados no retângulo, {n(meta.fora_do_municipio)} fora do limite municipal, {n(meta.duplicados)} duplicados e {n(meta.invalidos)} inválidos descartados na origem.</p>
           )}
+          {resumo.situacao_no_arquivo && Object.keys(resumo.situacao_no_arquivo).length > 0 && (
+            <p className="oi-muted" data-testid="imp-situacoes">
+              Situação informada pela fonte: {Object.entries(resumo.situacao_no_arquivo).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${n(v)}`).join(' · ')}
+            </p>
+          )}
         </div>
         <div className="oi-acoes" data-testid="imp-acoes">
           {emPrevia && podeEditar && <button type="button" className="btn btn-secondary btn-sm" onClick={() => setModal('reprocessar')}>Recalcular prévia</button>}
@@ -386,7 +395,7 @@ function Detalhe({ id, sessao }) {
           {bloqueios.map((b) => <div key={b.codigo} className="oi-bloqueio" role="alert" data-testid={`imp-bloqueio-${b.codigo}`}>⛔ {b.mensagem}</div>)}
           {avisos.map((a) => (
             <div key={a.codigo} className="oi-aviso" data-testid={`imp-aviso-${a.codigo}`}>
-              ⚠ {a.mensagem}
+              ⚠ {AVISOS[a.codigo] || a.mensagem}
               {a.exige_confirmacao && sessao.pode_aprovar_importacao && (
                 <label className="oi-confirma"><input type="checkbox" checked={confirmaAusencias} onChange={(e) => setConfirmaAusencias(e.target.checked)} data-testid="imp-confirma-ausencias" /> Confirmo que a coleta está completa e esses postes devem ser marcados como não localizados (nada é apagado).</label>
               )}
