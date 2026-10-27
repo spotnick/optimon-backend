@@ -3,7 +3,25 @@
 // continua funcional com o fundo neutro de contingência.
 
 import { optimapTileUrl } from '../lib/api';
-import { CORES, ZOOM_MIN, ZOOM_MAX_TILES, ZOOM_REF_INDIVIDUAL } from './config';
+import { CORES, ZOOM_MIN, ZOOM_MAX_TILES, ZOOM_REF_INDIVIDUAL, CATEGORIAS_POSTE } from './config';
+
+// Fase 5 — categoria de cor do poste de referência. Sem filtro de empresa usa a categoria
+// calculada no banco (qualquer empresa). Com empresa escolhida, só as ocupações DELA
+// pintam o poste de azul/vermelho; os demais ficam com a cor da situação da Copel.
+export function expressaoCategoria(empresaId) {
+  if (!empresaId) return ['coalesce', ['get', 'categoria'], 'OUTRO'];
+  const marca = `|${empresaId}|`;
+  return ['case',
+    ['in', marca, ['coalesce', ['get', 'emp_ap'], '']], 'PROJETO_APROVADO',
+    ['in', marca, ['coalesce', ['get', 'emp_sp'], '']], 'SEM_PROJETO',
+    ['coalesce', ['get', 'cat_fonte'], 'OUTRO']];
+}
+export function corCategoria(empresaId) {
+  return ['match', expressaoCategoria(empresaId), ...CATEGORIAS_POSTE.flatMap((c) => [c.id, CORES.categoria[c.id]]), CORES.categoria.OUTRO];
+}
+export function filtroCategorias(empresaId, visiveis) {
+  return ['in', expressaoCategoria(empresaId), ['literal', visiveis]];
+}
 
 const corEstado = ['match', ['get', 'estado'],
   'VALIDADO', CORES.estado.VALIDADO, 'DOCUMENTADO', CORES.estado.DOCUMENTADO,
@@ -45,8 +63,10 @@ export function camadasOptimap() {
       id: 'om-ref-agregado', type: 'circle', source: 'om-postes_referencia', 'source-layer': 'postes_referencia_agregado',
       minzoom: ZOOM_MIN.postes_referencia, maxzoom: ZOOM_REF_INDIVIDUAL,
       paint: {
-        'circle-color': CORES.referencia, 'circle-opacity': 0.35,
-        'circle-stroke-color': '#64748b', 'circle-stroke-width': 1,
+        'circle-color': ['case', ['>', ['coalesce', ['get', 'ocupados'], 0], 0], CORES.categoria.PROJETO_APROVADO, CORES.referencia],
+        'circle-opacity': 0.35,
+        'circle-stroke-color': ['case', ['>', ['coalesce', ['get', 'ocupados'], 0], 0], CORES.categoria.PROJETO_APROVADO, '#64748b'],
+        'circle-stroke-width': 1,
         'circle-radius': ['interpolate', ['linear'], ['get', 'quantidade'], 1, 4, 20, 9, 200, 16],
       },
     },
@@ -54,9 +74,10 @@ export function camadasOptimap() {
       id: 'om-ref', type: 'circle', source: 'om-postes_referencia', 'source-layer': 'postes_referencia',
       minzoom: ZOOM_REF_INDIVIDUAL,
       paint: {
-        'circle-radius': 4, 'circle-color': '#ffffff', 'circle-opacity': 0.9,
-        'circle-stroke-width': 1.6,
-        'circle-stroke-color': ['case', ['boolean', ['get', 'usado_pela_nick'], false], CORES.referenciaUsada, CORES.referencia],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 3.5, 18, 6],
+        'circle-color': corCategoria(null), 'circle-opacity': 0.95,
+        'circle-stroke-width': ['case', ['boolean', ['get', 'usado_pela_nick'], false], 2.2, 1],
+        'circle-stroke-color': ['case', ['boolean', ['get', 'usado_pela_nick'], false], '#0f172a', '#ffffff'],
       },
     },
     {

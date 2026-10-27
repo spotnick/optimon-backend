@@ -108,3 +108,34 @@ Volume esperado: cerca de 130,9 mil postes, ~150 MB a mais no banco.
 - **Recoletas:** rode `node tools\optimap\coletar_copel.mjs --cidade "<Nome>"` e importe o arquivo novo pela mesma tela.
   - Os postes que sumirem viram “não localizado na última coleta”; nada é apagado.
   - Cada recoleta completa adiciona ~100 MB ao banco, o que é tranquilo no plano Pro.
+
+---
+
+## Fase 5 — empresas, ocupações, CES e cores (27/10/2026)
+
+Esta fase é publicada pelo **mesmo script** da seção 1. Os grupos já aplicados aparecem como **JÁ APLICADO** e são pulados. Só o grupo **OptiMap Fase 5** fica **PENDENTE**, com 2 migrations.
+
+```powershell
+.\scripts\optimap_deploy_producao.ps1 -SoVerificar   # Fase 5 deve aparecer PENDENTE
+.\scripts\optimap_deploy_producao.ps1                # digite APLICAR
+```
+
+Ao final, o script lista as empresas cadastradas: NICK NETWORK (UC 515903403178) e AYOTECH (UC 638231603159).
+
+Depois, publique o código:
+
+```powershell
+git add api web supabase/migrations tests/optimap docs scripts/optimap_deploy_producao.ps1
+git commit -m "OptiMap Fase 5: empresas, ocupações, listas do CES e cores dos postes"
+git push origin main
+```
+
+Por último, carregue as listas do CES:
+
+1. No OptiMap, abra **Listas do CES**.
+2. Envie os arquivos de `tools\optimap\saida\ces\`:
+   - `ces_08930086000163_nick_2026-10-27.geojson` (5.341 postes);
+   - `ces_30353855000167_ayotech_2026-10-27.geojson` (391 postes).
+3. Como ADMINISTRADOR ou DIRETOR, aprove cada lista.
+
+Detalhes no `docs/OPTIMAP_FASE_5_RELATORIO.md`.

@@ -242,3 +242,29 @@ div.om-busca-lista.om-alerta-erro { color: var(--status-block); background: var(
   .oi-mapa-card { position: static; }
   .oi-mapa { height: 380px; }
 }
+
+/* ---- Fase 5: cores dos postes, filtro por empresa, ocupações ---- */
+.om-filtro-empresa { display: flex; flex-direction: column; gap: 3px; font-size: 0.78rem; margin-bottom: 6px; }
+.om-filtro-empresa select { font-size: 0.8rem; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface, #fff); color: inherit; }
+.om-legenda-categorias label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.om-legenda-categorias input { margin: 0 2px 0 0; }
+.om-ocupacoes { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.om-ocupacao { display: flex; gap: 6px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.om-ocupacao > div { flex: 1; min-width: 0; }
+.om-ocupacao strong { display: block; }
+.om-ocupacao > div > span { font-size: 0.78rem; color: var(--text-muted); }
+.om-ocupacao .om-ponto { margin-top: 4px; flex: none; }
+.om-ocupacao-sem_projeto { border-color: #fecaca; background: rgba(220, 38, 38, 0.04); }
+.om-ocupacao-projeto_aprovado { border-color: #bfdbfe; background: rgba(37, 99, 235, 0.04); }
+.om-btn-marcar { width: 100%; margin-top: 4px; }
+.om-form-ocupacao { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; font-size: 0.82rem; }
+.om-form-ocupacao label { display: flex; flex-direction: column; gap: 3px; }
+.om-form-ocupacao select, .om-form-ocupacao textarea { font: inherit; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface, #fff); color: inherit; }
+.om-form-acoes { display: flex; gap: 8px; }
+.om-historico-ocupacoes summary { cursor: pointer; font-size: 0.8rem; color: var(--text-muted); }
+.oi-dif { color: #b45309; font-weight: 600; }
+.oi-empresa-topo { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.oi-empresa h3 { margin: 0 0 4px; }
+.oi-empresa { margin-bottom: 12px; }
+.oi-form-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.oi-form-empresa { margin-bottom: 14px; }

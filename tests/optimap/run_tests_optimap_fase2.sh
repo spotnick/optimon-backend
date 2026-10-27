@@ -106,8 +106,8 @@ DADOS_ANTES=$(SQL "$DADOS_OFICIAIS_SQL")
 
 COPEL=$(SQL "select id from gis_fontes where codigo='COPEL_MAPA_PUBLICO'")
 PROPRIA=$(SQL "select id from gis_fontes where codigo='NICK_CADASTRO_MANUAL'")
-expect_eq "T05 fontes semeadas (1 EXTERNA Copel com termos registrados + 3 PROPRIA)" \
-  "$(SQL "select count(*) filter (where tipo='EXTERNA' and termos_uso is not null)||'/'||count(*) filter (where tipo='PROPRIA') from gis_fontes")" "1/3"
+expect_eq "T05 fontes semeadas (EXTERNA Copel com termos registrados + 3 PROPRIA; Fase 5 acrescenta COPEL_CES)" \
+  "$(SQL "select count(*) filter (where codigo='COPEL_MAPA_PUBLICO' and tipo='EXTERNA' and termos_uso is not null)||'/'||count(*) filter (where tipo='PROPRIA')||'/'||count(*) filter (where tipo='EXTERNA' and termos_uso is null) from gis_fontes")" "1/3/0"
 
 echo "== 1. Postes de referência externos =="
 REF1=$(AS $U_ADM "insert into gis_postes_referencia (fonte_id, id_externo, geom, cidade_id, codigo_ibge, situacao_fonte, atributos_fonte, data_referencia)

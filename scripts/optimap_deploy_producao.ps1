@@ -1,5 +1,5 @@
 ﻿# OptiMon — OptiMap: aplica no Supabase de PRODUÇÃO as migrations que ainda faltam
-# (Importação de Infraestrutura 4.1 + OptiMap Fase 2 + OptiMap Fase 4), em UMA transação.
+# (Importação de Infraestrutura 4.1 + OptiMap Fases 2, 4 e 5), em UMA transação.
 #
 # Uso (PowerShell, na raiz do repositório):
 #   $env:DATABASE_URL = "<connection string do Supabase — Project Settings > Database > Session pooler>"
@@ -55,7 +55,10 @@ $grupos = @(
      inicio = { Existe-Tabela 'public.gis_fontes' }; fim = { Existe-Funcao 'public' 'optimap_arquivar' } },
   @{ nome = 'OptiMap Fase 4 (importação de postes de referência)';
      arquivos = @('20261022090000_optimap_4_01_staging_importacao_gis.sql', '20261022090100_optimap_4_02_funcoes_importacao_gis.sql');
-     inicio = { Existe-Tabela 'staging.gis_importacoes' }; fim = { Existe-Funcao 'public' 'optimap_importacao_previa_geojson' } }
+     inicio = { Existe-Tabela 'staging.gis_importacoes' }; fim = { Existe-Funcao 'public' 'optimap_importacao_previa_geojson' } },
+  @{ nome = 'OptiMap Fase 5 (empresas, ocupações, CES, cores)';
+     arquivos = @('20261027090000_optimap_5_01_empresas_ocupacoes.sql', '20261027090100_optimap_5_02_funcoes_ces_ocupacoes.sql');
+     inicio = { Existe-Tabela 'public.gis_empresas' }; fim = { Existe-Funcao 'public' 'optimap_ces_conferencia' } }
 )
 
 Write-Host '== Banco de produção' -ForegroundColor Cyan
@@ -122,5 +125,8 @@ foreach ($g in $grupos) {
   Write-Host ("  {0,-55} {1}" -f $g.nome, $(if ($i -and $f) { 'OK' } else { 'FALTANDO' }))
 }
 Write-Host ("Fontes GIS: " + (Q "select string_agg(codigo || ' (' || tipo || ')', ', ' order by codigo) from public.gis_fontes"))
+if (Existe-Tabela 'public.gis_empresas') {
+  Write-Host ("Empresas: " + (Q "select string_agg(coalesce(nome_fantasia, razao_social) || ' (UC ' || coalesce(uc_copel, '-') || ')', ', ' order by razao_social) from public.gis_empresas"))
+}
 Write-Host ("Tamanho do banco: " + (Q "select pg_size_pretty(pg_database_size(current_database()))"))
 Write-Host 'Pronto. Cache do PostgREST recarregado.' -ForegroundColor Green

@@ -2,7 +2,9 @@
 // devolvido pela API (schema real da Fase 2); campo ausente/nulo não é exibido nem
 // inventado. Dado externo (postes de referência) recebe destaque próprio.
 
-import { ROTULO_ESTADO, ROTULO_ELEMENTO, ROTULO_SYNC } from './config';
+import { useState } from 'react';
+import { ROTULO_ESTADO, ROTULO_ELEMENTO, ROTULO_SYNC, ROTULO_OCUPACAO, CORES } from './config';
+import { api } from '../lib/api';
 
 const fmtData = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : null);
 const fmtCoord = (lon, lat) => `${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}`;
@@ -104,7 +106,7 @@ function Ponta({ p }) {
 
 const nomeVinculo = (v, ...campos) => (v ? campos.map((c) => v[c]).filter(Boolean).join(' — ') || v.id : null);
 
-export default function PainelDetalhe({ estado, onFechar, onSelecionar }) {
+export default function PainelDetalhe({ estado, onFechar, onSelecionar, sessao = {}, empresas = [], onOcupacaoAlterada }) {
   if (!estado) return null;
   const { carregando, erro, dados: d, candidatos, coordenada } = estado;
 
@@ -136,18 +138,18 @@ export default function PainelDetalhe({ estado, onFechar, onSelecionar }) {
         </>
       )}
 
-      {d && !carregando && <Conteudo d={d} onSelecionar={onSelecionar} />}
+      {d && !carregando && <Conteudo d={d} onSelecionar={onSelecionar} sessao={sessao} empresas={empresas} onOcupacaoAlterada={onOcupacaoAlterada} />}
     </aside>
   );
 }
 
-function Conteudo({ d, onSelecionar }) {
+function Conteudo({ d, onSelecionar, sessao, empresas, onOcupacaoAlterada }) {
   const v = d.vinculos || {};
   if (d.camada === 'postes_referencia') {
     return (
       <>
         <div className="om-faixa-externa" role="note">
-          Referência da concessionária — <strong>não</strong> indica que a NICK utilize este poste.
+          Poste da concessionária. A ocupação por empresa aparece abaixo: vem da lista de projetos aprovados do CES ou de marcação da engenharia.
         </div>
         <p className="om-sobretitulo">Poste de referência externa</p>
         <h3>Poste {d.id_externo}</h3>
@@ -159,12 +161,13 @@ function Conteudo({ d, onSelecionar }) {
           <Coordenadas geometry={d.geometry} />
           <Campo rotulo="Primeira coleta">{fmtData(d.primeira_coleta_em)}</Campo>
           <Campo rotulo="Última coleta">{fmtData(d.ultima_coleta_em)}</Campo>
-          <Campo rotulo="Usado pela NICK">
+          <Campo rotulo="Vinculado a poste da NICK no OptiMap">
             {d.poste_nick
               ? <button type="button" className="om-link" onClick={() => onSelecionar('postes', d.poste_nick.id)}>Sim — ver poste da NICK ({ROTULO_ESTADO[d.poste_nick.estado]})</button>
               : 'Não há poste da NICK vinculado a esta referência'}
           </Campo>
         </dl>
+        <Ocupacoes d={d} sessao={sessao} empresas={empresas} onAlterada={() => onOcupacaoAlterada?.(d.id)} />
         {d.atributos_fonte && Object.keys(d.atributos_fonte).length > 0 && (
           <section className="om-secao">
             <h4>Atributos como recebidos da fonte</h4>
@@ -237,5 +240,124 @@ function Conteudo({ d, onSelecionar }) {
       <Fonte fonte={d.fonte} />
       <Validacao d={d} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fase 5 — ocupações do poste (empresa / contrato / UC) e marcação pela engenharia.
+// ---------------------------------------------------------------------------
+const EMPRESA_KEY = 'optimap_ultima_empresa_marcacao_v1';
+// Pré-seleciona a última empresa usada nesta máquina (comodidade; a escolha é sempre visível).
+function empresaPadrao(lista) {
+  try {
+    const u = window.localStorage.getItem(EMPRESA_KEY);
+    if (u && lista.some((e) => e.id === u)) return u;
+  } catch { /* storage indisponível */ }
+  return lista[0].id;
+}
+
+function Ocupacoes({ d, sessao, empresas, onAlterada }) {
+  const lista = Array.isArray(d.ocupacoes) ? d.ocupacoes : [];
+  const ativas = lista.filter((o) => o.estado !== 'ENCERRADA');
+  const historico = lista.filter((o) => o.estado === 'ENCERRADA');
+  const [form, setForm] = useState(null); // { modo: 'marcar', empresa_id, motivo } | { modo: 'encerrar', id, motivo }
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState(null);
+  const nome = (id) => (id ? d.usuarios?.[id] || 'usuário não identificado' : null);
+  const ativasEmpresas = empresas.filter((e) => e.ativa);
+
+  const enviar = async () => {
+    setEnviando(true); setErro(null);
+    try {
+      if (form.modo === 'marcar') {
+        await api.optimap.ocupacoes.marcar({ poste_referencia_id: d.id, empresa_id: form.empresa_id, motivo: form.motivo });
+        try { window.localStorage.setItem(EMPRESA_KEY, form.empresa_id); } catch { /* ignora */ }
+      }
+      else await api.optimap.ocupacoes.encerrar(form.id, form.motivo);
+      setForm(null);
+      onAlterada?.();
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <section className="om-secao" data-testid="painel-ocupacoes">
+      <h4>Ocupação por empresa</h4>
+      {ativas.length === 0 && <p className="om-nota">Nenhuma empresa cadastrada ocupa este poste (nem na lista do CES, nem marcada pela engenharia).</p>}
+      <ul className="om-ocupacoes">
+        {ativas.map((o) => (
+          <li key={o.id} className={`om-ocupacao om-ocupacao-${o.tipo.toLowerCase()}`} data-testid="ocupacao">
+            <span className="om-ponto" style={{ background: CORES.categoria[o.estado === 'ATIVA' ? o.tipo : 'OUTRO'] }} aria-hidden="true" />
+            <div>
+              <strong>{o.empresa?.nome_fantasia || o.empresa?.razao_social}</strong>
+              <span>{ROTULO_OCUPACAO.tipo[o.tipo]}{o.estado !== 'ATIVA' ? ` · ${ROTULO_OCUPACAO.estado[o.estado]}` : ''}</span>
+              <dl>
+                <Campo rotulo="Razão social">{o.empresa?.razao_social}</Campo>
+                <Campo rotulo="UC Copel" mono>{o.empresa?.uc_copel}</Campo>
+                <Campo rotulo="Contrato">{o.empresa?.contrato_copel}</Campo>
+                <Campo rotulo={o.origem === 'CES' ? 'Lista do CES de' : 'Marcado em'}>{fmtData(o.origem === 'CES' ? o.data_referencia : o.criado_em)}</Campo>
+                {o.origem === 'MARCACAO' && <Campo rotulo="Marcado por">{nome(o.criado_por)}</Campo>}
+                {o.origem === 'MARCACAO' && <Campo rotulo="Descrição">{o.motivo}</Campo>}
+              </dl>
+              {o.origem === 'MARCACAO' && o.estado === 'ATIVA' && sessao.pode_marcar_ocupacao && !form && (
+                <button type="button" className="om-link" onClick={() => { setErro(null); setForm({ modo: 'encerrar', id: o.id, motivo: '' }); }} data-testid="ocupacao-encerrar">encerrar marcação</button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {sessao.pode_marcar_ocupacao && !form && ativasEmpresas.length > 0 && (
+        <button type="button" className="btn btn-secondary om-btn-marcar" onClick={() => { setErro(null); setForm({ modo: 'marcar', empresa_id: empresaPadrao(ativasEmpresas), motivo: '' }); }} data-testid="ocupacao-marcar">
+          Marcar “ocupado sem projeto aprovado”
+        </button>
+      )}
+
+      {form && (
+        <div className="om-form-ocupacao" data-testid="form-ocupacao">
+          {form.modo === 'marcar' ? (
+            <>
+              <label>Empresa
+                <select value={form.empresa_id} onChange={(e) => setForm({ ...form, empresa_id: e.target.value })} data-testid="form-ocupacao-empresa">
+                  {ativasEmpresas.map((e) => <option key={e.id} value={e.id}>{e.nome_fantasia || e.razao_social} — UC {e.uc_copel || '—'}</option>)}
+                </select>
+              </label>
+              <label>Descrição (obrigatória)
+                <textarea rows={2} maxLength={1000} value={form.motivo} placeholder="Ex.: cabo existente, levantamento de campo de 20/10" onChange={(e) => setForm({ ...form, motivo: e.target.value })} data-testid="form-ocupacao-motivo" />
+              </label>
+            </>
+          ) : (
+            <label>Motivo do encerramento (obrigatório)
+              <textarea rows={2} maxLength={1000} value={form.motivo} placeholder="Ex.: cabo retirado / marcado no poste errado" onChange={(e) => setForm({ ...form, motivo: e.target.value })} data-testid="form-ocupacao-motivo" />
+            </label>
+          )}
+          {erro && <div className="om-alerta om-alerta-erro" role="alert">{erro}</div>}
+          <div className="om-form-acoes">
+            <button type="button" className="btn btn-primary" disabled={enviando || form.motivo.trim().length < 3} onClick={enviar} data-testid="form-ocupacao-confirmar">
+              {enviando ? 'Salvando…' : form.modo === 'marcar' ? 'Marcar ocupação' : 'Encerrar marcação'}
+            </button>
+            <button type="button" className="btn btn-secondary" disabled={enviando} onClick={() => setForm(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {historico.length > 0 && (
+        <details className="om-historico-ocupacoes">
+          <summary>{historico.length} marcação(ões) encerrada(s)</summary>
+          <ol className="om-historico">
+            {historico.map((o) => (
+              <li key={o.id}>
+                <strong>{o.empresa?.nome_fantasia || o.empresa?.razao_social} — {ROTULO_OCUPACAO.tipo[o.tipo]}</strong>
+                <span>{fmtData(o.criado_em)} → {fmtData(o.encerrado_em)}</span>
+                {o.motivo_encerramento && <em>{o.motivo_encerramento}</em>}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </section>
   );
 }

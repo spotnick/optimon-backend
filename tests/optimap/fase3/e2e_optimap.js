@@ -238,8 +238,8 @@ async function buscar(page, texto) {
     await clicarEm(page, ref4);
     await page.waitForSelector('[data-testid="painel-detalhe"] .om-faixa-externa', { timeout: 8000 });
     const pRef = await page.textContent('[data-testid="painel-detalhe"]');
-    check('T08c poste externo destacado como referência da concessionária (não usado pela NICK)',
-      pRef.includes('Referência da concessionária') && pRef.includes('Não há poste da NICK vinculado') && pRef.includes('Data de referência'), pRef.slice(0, 300));
+    check('T08c poste externo destacado como referência da concessionária (não usado pela NICK; texto da Fase 5)',
+      pRef.includes('Poste da concessionária') && pRef.includes('Não há poste da NICK vinculado') && pRef.includes('Data de referência'), pRef.slice(0, 300));
     await page.screenshot({ path: path.join(SHOTS, '05_painel_poste_referencia_externa.png') });
     // sobreposição: CEO montada no poste promovido → lista para escolher
     await irPara(page, CEO_TESTE, 18);

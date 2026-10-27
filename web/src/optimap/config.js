@@ -40,6 +40,11 @@ export const CORES = {
   estado: { VALIDADO: '#16a34a', DOCUMENTADO: '#2563eb', PLANEJADO: '#64748b', DESATIVADO: '#94a3b8' },
   elemento: { CEO: '#7c3aed', CTO: '#0891b2', SPLITTER: '#db2777', RESERVA_TECNICA: '#b45309', DERIVACAO: '#475569', OUTRO: '#64748b' },
   referencia: '#94a3b8',
+  // Fase 5 — cor do poste de referência, por prioridade (a 1ª que se aplica vence).
+  categoria: {
+    PROJETO_APROVADO: '#2563eb', SEM_PROJETO: '#dc2626', INDISPONIVEL: '#6b7280',
+    POSSIVEL: '#eab308', DISPONIVEL: '#16a34a', OUTRO: '#cbd5e1',
+  },
   referenciaUsada: '#2563eb',
   selecao: '#f59e0b',
 };
@@ -63,6 +68,21 @@ export const CAMADAS = [
   { id: 'postes', nome: 'Postes da NICK', descricao: 'Postes usados ou projetados pela NICK',
     vazio: 'Nenhum poste da NICK georreferenciado ainda.' },
   { id: 'postes_referencia', nome: 'Postes de referência (concessionária)',
-    descricao: 'Referência externa — não significa que a NICK use o poste',
+    descricao: 'Postes da concessionária — a cor mostra ocupação por empresa ou a situação na Copel',
     vazio: 'Nenhum poste de referência importado. A importação de fonte autorizada é feita na Fase 4.' },
 ];
+
+// Fase 5 — legenda/filtro das cores dos postes de referência (mesma ordem de prioridade
+// de app.gis_categoria_poste no banco).
+export const CATEGORIAS_POSTE = [
+  { id: 'PROJETO_APROVADO', nome: 'Ocupamos — projeto aprovado (CES)' },
+  { id: 'SEM_PROJETO', nome: 'Ocupamos — sem projeto aprovado' },
+  { id: 'INDISPONIVEL', nome: 'Copel: indisponível' },
+  { id: 'POSSIVEL', nome: 'Copel: possível disponibilidade' },
+  { id: 'DISPONIVEL', nome: 'Copel: disponível' },
+  { id: 'OUTRO', nome: 'Sem situação informada' },
+];
+export const ROTULO_OCUPACAO = {
+  tipo: { PROJETO_APROVADO: 'Projeto aprovado (CES)', SEM_PROJETO: 'Ocupado sem projeto aprovado' },
+  estado: { ATIVA: 'Ativa', NAO_CONSTA_ULTIMA_LISTA: 'Não consta na última lista do CES', ENCERRADA: 'Encerrada' },
+};

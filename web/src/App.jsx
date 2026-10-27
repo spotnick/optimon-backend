@@ -33,6 +33,9 @@ import SignExternal from './pages/SignExternal';
 const OptiMap = lazy(() => import('./pages/OptiMap'));
 // OptiMap Fase 4: importações de postes de referência (mesmo chunk de mapa, sob demanda).
 const OptiMapImportacoes = lazy(() => import('./pages/OptiMapImportacoes'));
+// OptiMap Fase 5: listas do CES e empresas com contrato Copel.
+const OptiMapCes = lazy(() => import('./pages/OptiMapCes'));
+const OptiMapEmpresas = lazy(() => import('./pages/OptiMapEmpresas'));
 
 export default function App() {
   return (
@@ -95,6 +98,28 @@ export default function App() {
             element={(
               <Suspense fallback={<div style={{ padding: 48, display: 'flex', gap: 12, alignItems: 'center', color: 'var(--text-muted)' }}><div className="spinner" /> Carregando…</div>}>
                 <OptiMapImportacoes />
+              </Suspense>
+            )}
+          />
+        ))}
+        {['/optimap/ces', '/optimap/ces/:id'].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={(
+              <Suspense fallback={<div style={{ padding: 48, display: 'flex', gap: 12, alignItems: 'center', color: 'var(--text-muted)' }}><div className="spinner" /> Carregando…</div>}>
+                <OptiMapCes />
+              </Suspense>
+            )}
+          />
+        ))}
+        {['/optimap/empresas'].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={(
+              <Suspense fallback={<div style={{ padding: 48, display: 'flex', gap: 12, alignItems: 'center', color: 'var(--text-muted)' }}><div className="spinner" /> Carregando…</div>}>
+                <OptiMapEmpresas />
               </Suspense>
             )}
           />

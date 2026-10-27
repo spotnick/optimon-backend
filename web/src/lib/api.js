@@ -112,6 +112,31 @@ export const api = {
       descartar: (id, motivo) => request(`/api/optimap/importacoes/${id}/descartar`, { method: 'POST', body: { motivo } }),
       reverter: (id, motivo) => request(`/api/optimap/importacoes/${id}/reverter`, { method: 'POST', body: { motivo } }),
     },
+    // Fase 5 — empresas, ocupações e listas do CES
+    empresas: {
+      listar: () => request('/api/optimap/empresas'),
+      salvar: (id, body) => request(id ? `/api/optimap/empresas/${id}` : '/api/optimap/empresas', { method: id ? 'PUT' : 'POST', body }),
+      conferencia: (id) => request(`/api/optimap/empresas/${id}/conferencia`),
+    },
+    ocupacoes: {
+      marcar: (body) => request('/api/optimap/ocupacoes', { method: 'POST', body }),
+      encerrar: (id, motivo) => request(`/api/optimap/ocupacoes/${id}/encerrar`, { method: 'POST', body: { motivo } }),
+    },
+    ces: {
+      listar: () => request('/api/optimap/ces'),
+      enviar: (formData) => uploadMultipart('/api/optimap/ces', formData),
+      detalhe: (id) => request(`/api/optimap/ces/${id}`),
+      itens: (id, params = {}) => {
+        const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
+        return request(`/api/optimap/ces/${id}/itens?${q}`);
+      },
+      previa: (id) => request(`/api/optimap/ces/${id}/previa.geojson`),
+      reprocessar: (id) => request(`/api/optimap/ces/${id}/reprocessar`, { method: 'POST', body: {} }),
+      aprovar: (id, body) => request(`/api/optimap/ces/${id}/aprovar`, { method: 'POST', body }),
+      rejeitar: (id, motivo) => request(`/api/optimap/ces/${id}/rejeitar`, { method: 'POST', body: { motivo } }),
+      descartar: (id, motivo) => request(`/api/optimap/ces/${id}/descartar`, { method: 'POST', body: { motivo } }),
+      reverter: (id, motivo) => request(`/api/optimap/ces/${id}/reverter`, { method: 'POST', body: { motivo } }),
+    },
   },
 
   cities: {

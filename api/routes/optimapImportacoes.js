@@ -30,7 +30,7 @@ function statusPara(message = '', code = '') {
   if (JWT_ERRO_RE.test(`${code} ${message}`)) return 401;
   if (/OPTIMAP_SEM_PERMISSAO|permission denied/i.test(message)) return 403;
   if (/OPTIMAP_NAO_ENCONTRADO/.test(message)) return 404;
-  if (/OPTIMAP_(PREVIA_DESATUALIZADA|IMPORTACAO_EM_ABERTO)/.test(message)) return 409;
+  if (/OPTIMAP_(PREVIA_DESATUALIZADA|IMPORTACAO_EM_ABERTO|JA_OCUPADO)/.test(message)) return 409;
   if (/OPTIMAP_[A-Z_]+/.test(message)) return 400;
   if (/statement timeout|canceling statement/i.test(message)) return 504;
   return 500;
@@ -271,3 +271,4 @@ router.post('/:id/reverter', idValido, comMotivo('optimap_importacao_reverter', 
 
 module.exports = router;
 module.exports._lerArquivo = lerArquivo; // testes
+module.exports._erro = erro; // reaproveitado pelas rotas da Fase 5 (mesmas mensagens/status)

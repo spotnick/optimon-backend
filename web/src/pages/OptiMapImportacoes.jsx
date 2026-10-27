@@ -572,3 +572,6 @@ export default function OptiMapImportacoes() {
   }, [sessao, id]);
   return conteudo;
 }
+
+// Reaproveitados pelas telas da Fase 5 (listas do CES).
+export { Modal, Status };

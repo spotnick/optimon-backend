@@ -1,4 +1,5 @@
-// OptiMap — Fase 3: mapa interativo inicial (visualização).
+// OptiMap — Fase 3: mapa interativo inicial (visualização). Fase 5: cores dos postes por
+// ocupação/situação, filtro por empresa e marcação "ocupado sem projeto" no painel.
 //
 // Carregado sob demanda (React.lazy em App.jsx): o MapLibre e seu CSS só entram no bundle
 // deste chunk — nenhuma outra tela do OptiMon baixa a biblioteca.
@@ -14,15 +15,24 @@ import { Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import '../optimap/optimap.css';
-import { api, API_URL } from '../lib/api';
+import { api, API_URL, optimapTileUrl } from '../lib/api';
 import { supabase } from '../lib/supabaseClient';
-import { BASEMAP, ESTILO_FALLBACK, VISTA_INICIAL, CAMADAS, ZOOM_MIN, ZOOM_REF_INDIVIDUAL, CORES, ROTULO_ELEMENTO } from '../optimap/config';
-import { fontesOptimap, camadasOptimap, DESENHO_POR_CAMADA, CAMADAS_CLICAVEIS, camadaDaFeicao } from '../optimap/camadasMapa';
+import { BASEMAP, ESTILO_FALLBACK, VISTA_INICIAL, CAMADAS, ZOOM_MIN, ZOOM_REF_INDIVIDUAL, CORES, ROTULO_ELEMENTO, CATEGORIAS_POSTE } from '../optimap/config';
+import { fontesOptimap, camadasOptimap, DESENHO_POR_CAMADA, CAMADAS_CLICAVEIS, camadaDaFeicao, corCategoria, filtroCategorias } from '../optimap/camadasMapa';
 import PainelDetalhe from '../optimap/PainelDetalhe';
 
 const TIPO_BUSCA = { cidade: 'Cidade', pop: 'POP', poste: 'Poste NICK', poste_referencia: 'Poste (referência)', elemento: 'Elemento', coordenada: 'Coordenada' };
 const CAMADA_DA_BUSCA = { pop: 'pops', poste: 'postes', poste_referencia: 'postes_referencia', elemento: 'elementos' };
 const VISIBILIDADE_KEY = 'optimap_camadas_visiveis_v1';
+const CORES_KEY = 'optimap_cores_postes_v1';
+
+function lerCores() {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(CORES_KEY) || 'null');
+    if (v && Array.isArray(v.categorias)) return { categorias: v.categorias, empresa: typeof v.empresa === 'string' ? v.empresa : '' };
+  } catch { /* storage indisponível — usa o padrão */ }
+  return { categorias: CATEGORIAS_POSTE.map((c) => c.id), empresa: '' };
+}
 
 async function carregarEstiloBase() {
   const ctrl = new AbortController();
@@ -78,6 +88,8 @@ export default function OptiMap() {
   const [painelCamadasAberto, setPainelCamadasAberto] = useState(true);
   const [detalhe, setDetalhe] = useState(null);
   const [busca, setBusca] = useState({ texto: '', resultados: null, carregando: false, erro: null, aviso: null });
+  const [empresas, setEmpresas] = useState([]);
+  const [cores, setCores] = useState(lerCores); // { categorias: [...visíveis], empresa: '' | uuid }
 
   // ---- sessão / permissão (a API recusa 403 para perfis sem acesso; o banco também) ----
   useEffect(() => {
@@ -167,6 +179,26 @@ export default function OptiMap() {
   }, [sessao.pode_ver]);
 
   useEffect(() => { if (sessao.pode_ver) carregarResumo(); }, [sessao.pode_ver, carregarResumo]);
+  useEffect(() => {
+    if (!sessao.pode_ver) return;
+    api.optimap.empresas.listar().then((l) => setEmpresas(Array.isArray(l) ? l : [])).catch(() => setEmpresas([]));
+  }, [sessao.pode_ver]);
+
+  // ---- Fase 5: cores dos postes por categoria + filtro de empresa ----
+  useEffect(() => {
+    try { window.localStorage.setItem(CORES_KEY, JSON.stringify(cores)); } catch { /* ignora */ }
+    const map = mapRef.current;
+    if (!map || !mapaPronto || !map.getLayer('om-ref')) return;
+    const empresa = empresas.some((e) => e.id === cores.empresa) ? cores.empresa : null;
+    map.setPaintProperty('om-ref', 'circle-color', corCategoria(empresa));
+    map.setFilter('om-ref', filtroCategorias(empresa, cores.categorias));
+  }, [cores, empresas, mapaPronto]);
+
+  // Depois de marcar/encerrar uma ocupação, recarrega só os tiles de postes de referência.
+  const recarregarReferencias = useCallback(() => {
+    const src = mapRef.current?.getSource('om-postes_referencia');
+    if (src?.setTiles) src.setTiles([`${optimapTileUrl('postes_referencia')}?v=${Date.now()}`]);
+  }, []);
 
   // ---- visibilidade das camadas ----
   useEffect(() => {
@@ -401,6 +433,30 @@ export default function OptiMap() {
               })}
             </ul>
             <div className="om-legenda" data-testid="optimap-legenda">
+              <h4>Postes (cores)</h4>
+              <label className="om-filtro-empresa">
+                <span>Empresa</span>
+                <select value={cores.empresa} onChange={(e) => setCores((c) => ({ ...c, empresa: e.target.value }))} data-testid="optimap-filtro-empresa">
+                  <option value="">Todas as empresas</option>
+                  {empresas.map((e) => <option key={e.id} value={e.id}>{e.nome_fantasia || e.razao_social}</option>)}
+                </select>
+              </label>
+              <ul className="om-legenda-categorias" data-testid="optimap-legenda-categorias">
+                {CATEGORIAS_POSTE.map((c) => (
+                  <li key={c.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={cores.categorias.includes(c.id)}
+                        onChange={(e) => setCores((v) => ({ ...v, categorias: e.target.checked ? [...new Set([...v.categorias, c.id])] : v.categorias.filter((x) => x !== c.id) }))}
+                        data-testid={`toggle-categoria-${c.id}`}
+                      />
+                      <span className="om-ponto" style={{ background: CORES.categoria[c.id] }} aria-hidden="true" />{c.nome}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <p className="om-camada-desc">Contorno escuro = poste vinculado a um poste da NICK no OptiMap. Cores a partir do zoom {ZOOM_REF_INDIVIDUAL}; nos agrupamentos, azul indica que há postes ocupados.</p>
               <h4>Estado (rede NICK)</h4>
               <ul>
                 {legendaEstados.map((e) => (
@@ -415,7 +471,6 @@ export default function OptiMap() {
               </ul>
               <h4>Origem</h4>
               <ul>
-                <li><span className="om-ponto om-ponto-ref" aria-hidden="true" />Referência externa (concessionária)</li>
                 <li><span className="om-ponto om-ponto-ref-agregado" aria-hidden="true" />Agrupamento de referências (zoom 12–14)</li>
                 <li><span className="om-ponto om-ponto-pop" aria-hidden="true" />POP (cadastro OptiMon)</li>
               </ul>
@@ -424,14 +479,20 @@ export default function OptiMap() {
         )}
       </aside>
 
-      <PainelDetalhe estado={detalhe} onFechar={fecharDetalhe} onSelecionar={abrirDetalhe} />
+      <PainelDetalhe
+        estado={detalhe} onFechar={fecharDetalhe} onSelecionar={abrirDetalhe}
+        sessao={sessao} empresas={empresas}
+        onOcupacaoAlterada={(id) => { recarregarReferencias(); abrirDetalhe('postes_referencia', id); }}
+      />
 
       {/* Barra de status */}
       <div className="om-status" data-testid="optimap-status">
         <span>Zoom {zoom.toFixed(1)}</span>
         {cursor && <span className="om-mono">{cursor.lat.toFixed(5)}, {cursor.lng.toFixed(5)}</span>}
-        <span>Perfil {sessao.role} · visualização</span>
+        <span>Perfil {sessao.role}{sessao.pode_marcar_ocupacao ? '' : ' · visualização'}</span>
         {sessao.pode_ver_importacoes && <Link to="/optimap/importacoes" className="om-link-status" data-testid="optimap-link-importacoes">Importações de postes</Link>}
+        {sessao.pode_ver_importacoes && <Link to="/optimap/ces" className="om-link-status" data-testid="optimap-link-ces">Listas do CES</Link>}
+        <Link to="/optimap/empresas" className="om-link-status" data-testid="optimap-link-empresas">Empresas</Link>
         {(carregandoTiles || baseOk === null) && <span className="om-carregando-chip" data-testid="optimap-carregando"><span className="spinner om-spinner-mini" />carregando…</span>}
       </div>
     </div>

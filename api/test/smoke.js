@@ -67,10 +67,23 @@ async function main() {
   check('GET /api/optimap/importacoes sem Authorization -> 401', noAuthImp.status === 401);
   const noAuthImpPost = await request(server, '/api/optimap/importacoes', { method: 'POST' });
   check('POST /api/optimap/importacoes sem Authorization -> 401', noAuthImpPost.status === 401);
+  // Fase 5 — empresas, ocupações e listas do CES também exigem login.
+  for (const [metodo, rota] of [['GET', '/api/optimap/ces'], ['POST', '/api/optimap/ces'], ['GET', '/api/optimap/empresas'],
+    ['POST', '/api/optimap/ocupacoes'], ['POST', '/api/optimap/ocupacoes/00000000-0000-0000-0000-000000000000/encerrar']]) {
+    const r = await request(server, rota, { method: metodo });
+    check(`${metodo} ${rota} sem Authorization -> 401`, r.status === 401);
+  }
+  const { _lerArquivo: lerCes } = require('../routes/optimapCes');
+  const crypto = require('crypto');
+  const feats = [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-52.6, -23.6] }, properties: { num_seq_geo: '1' } }];
+  const docOk = { type: 'FeatureCollection', optimap: { formato: 'optimap-ocupacoes-ces/1', sha256_features: crypto.createHash('sha256').update(JSON.stringify(feats)).digest('hex') }, features: feats };
+  check('lista do CES íntegra é lida (1 item)', lerCes(Buffer.from(JSON.stringify(docOk))).itens.length === 1);
+  let recusou = false;
+  try { lerCes(Buffer.from(JSON.stringify({ ...docOk, features: [{ ...feats[0], properties: { num_seq_geo: '2' } }] }))); } catch { recusou = true; }
+  check('lista do CES alterada após a coleta é recusada (hash)', recusou);
 
   // Leitor do arquivo do coletor: confere formato e o hash gravado pelo coletor.
   const { _lerArquivo } = require('../routes/optimapImportacoes');
-  const crypto = require('crypto');
   const features = [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-52.46, -23.62] },
     properties: { num_seq_geo: '123', situacao: 'Disponível', indic_ps_particular: 'N', objectid: 9 } }];
   const meta = { formato: 'optimap-referencia-postes/1', fonte: 'COPEL_MAPA_PUBLICO', total: 1,

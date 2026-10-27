@@ -10,7 +10,7 @@
 // visualização do mapa (FINANCEIRO / usuário sem perfil). A lista abaixo espelha
 // app.gis_pode_ver() — se divergir, o banco continua sendo a barreira real (devolve vazio).
 //
-// Nada aqui escreve no banco: a Fase 3 é só visualização.
+// As escritas (Fases 4 e 5) ficam nos sub-roteadores montados no fim, sempre via funções SQL.
 
 const express = require('express');
 const crypto = require('crypto');
@@ -124,6 +124,9 @@ router.get('/sessao', (req, res) => {
     pode_importar: ['ADMINISTRADOR', 'ENGENHARIA'].includes(r),
     pode_aprovar_importacao: ['ADMINISTRADOR', 'DIRETOR'].includes(r),
     pode_reverter_importacao: r === 'ADMINISTRADOR',
+    // Fase 5 — empresas, ocupações e listas do CES.
+    pode_marcar_ocupacao: PERFIS_EDITAR.has(r),
+    pode_gerir_empresas: r === 'ADMINISTRADOR',
   });
 });
 
@@ -276,7 +279,15 @@ router.get('/detalhe/:camada/:id', async (req, res) => {
   // Arquivado (soft delete) não aparece nos tiles nem na busca — o detalhe segue a mesma regra.
   if (d.removido_em) return res.status(404).json({ error: 'Elemento arquivado.' });
 
-  const usuarioIds = [d.criado_por, d.validado_por, ...((d.historico_estado || []).map((h) => h.usuario_id))];
+  // Fase 5: ocupações (empresa / contrato / UC) do poste de referência.
+  let ocupacoes;
+  if (camada === 'postes_referencia') {
+    const { data: oc, error: e3 } = await supabase.rpc('optimap_ocupacoes_do_poste', { p_poste_referencia_id: id });
+    if (e3) return erro(res, e3);
+    ocupacoes = oc || [];
+  }
+  const usuarioIds = [d.criado_por, d.validado_por, ...((d.historico_estado || []).map((h) => h.usuario_id)),
+    ...((ocupacoes || []).map((o) => o.criado_por))];
   const [cid, pops, segs, cabos, lotes, postes, elems, users] = await Promise.all([
     nomes(supabase, 'cidades_infra', 'nome, uf', [d.cidade_id]),
     nomes(supabase, 'infra_pops', 'codigo, nome', [d.pop_id, d.ponta_a_pop_id, d.ponta_b_pop_id]),
@@ -306,11 +317,15 @@ router.get('/detalhe/:camada/:id', async (req, res) => {
       ponta_a: ponta(elems, pops, d.ponta_a_elemento_id, d.ponta_a_pop_id),
       ponta_b: ponta(elems, pops, d.ponta_b_elemento_id, d.ponta_b_pop_id),
     },
+    ...(ocupacoes ? { ocupacoes } : {}),
     usuarios: Object.fromEntries(Object.entries(users).map(([k, v]) => [k, v.nome])),
   });
 });
 
 // Fase 4 — importações (montado depois do middleware de perfil acima).
 router.use('/importacoes', require('./optimapImportacoes'));
+// Fase 5 — empresas, ocupações e listas do CES.
+router.use('/ces', require('./optimapCes'));
+router.use('/', require('./optimapEmpresas'));
 
 module.exports = router;
